@@ -1,0 +1,4 @@
+wxPython
+PyPubSub
+Pygments
+Pywin32

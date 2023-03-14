@@ -1,0 +1,68 @@
+
+5e4f3eda137d10f9
+
+tcpreplay -i p3p2 -l 1 -x 1 -v /home/lbs/tcpdump/sz_level2.pcap
+tcpreplay -i p3p2 -l 1 -x 1 -v /home/lbs/tcpdump/sz_entrust.pcap
+tcpreplay -i p3p2 -l 1 -x 1 -v /home/lbs/tcpdump/sz_trunover.pcap
+tcpreplay -i p3p2 -l 1 -x 1 -v /home/lbs/tcpdump/sz_option.pcap
+tcpreplay -i p3p2 -l 1 -x 1 -v /home/lbs/tcpdump/sz_index.pcap
+
+
+
+
+tcpdump -i enp101s0f0 -w sz_level2_ac_poc.pcap
+tcpdump -i enp101s0f0 -w sz_entrust_ac_poc.pcap
+tcpdump -i enp101s0f0 -w sz_trunover_ac_poc.pcap
+tcpdump -i enp101s0f0 -w sz_option_ac_poc.pcap
+tcpdump -i enp101s0f0 -w sz_index_ac_poc.pcap
+
+
+<!--sectype type="0x01" quotetype="0x01"/-->
+<!--sectype type="0x01" quotetype="0x02"/-->
+<!--sectype type="0x01" quotetype="0x04"/-->
+<!--sectype type="0x01" quotetype="0x08"/-->
+<!--sectype type="0x01" quotetype="0x10"/-->
+<!--sectype type="0x01" quotetype="0x20"/-->
+<!--sectype type="0x01" quotetype="0xff"/-->
+<!--sectype type="0x02" quotetype="0x01"/-->
+<!--sectype type="0x02" quotetype="0x02"/-->
+<!--sectype type="0x02" quotetype="0x04"/-->
+<!--sectype type="0x02" quotetype="0x08"/-->
+<!--sectype type="0x02" quotetype="0x10"/-->
+<!--sectype type="0x02" quotetype="0x20"/-->
+<!--sectype type="0x02" quotetype="0xff"/-->
+<!--sectype type="0x04" quotetype="0x01"/-->
+<!--sectype type="0x04" quotetype="0x04"/-->
+<!--sectype type="0x04" quotetype="0x04"/-->
+<!--sectype type="0x04" quotetype="0x08"/-->
+<!--sectype type="0x04" quotetype="0x10"/-->
+<!--sectype type="0x04" quotetype="0x20"/-->
+<!--sectype type="0x04" quotetype="0xff"/-->
+<!--sectype type="0x08" quotetype="0x01"/-->
+<!--sectype type="0x08" quotetype="0x08"/-->
+<!--sectype type="0x08" quotetype="0x04"/-->
+<!--sectype type="0x08" quotetype="0x08"/-->
+<!--sectype type="0x08" quotetype="0x10"/-->
+<!--sectype type="0x08" quotetype="0x20"/-->
+<!--sectype type="0x08" quotetype="0xff"/-->
+<!--sectype type="0x10" quotetype="0x01"/-->
+<!--sectype type="0x10" quotetype="0x10"/-->
+<!--sectype type="0x10" quotetype="0x04"/-->
+<!--sectype type="0x10" quotetype="0x08"/-->
+<!--sectype type="0x10" quotetype="0x10"/-->
+<!--sectype type="0x10" quotetype="0x20"/-->
+<!--sectype type="0x10" quotetype="0xff"/-->
+<!--sectype type="0x20" quotetype="0x01"/-->
+<!--sectype type="0x20" quotetype="0x20"/-->
+<!--sectype type="0x20" quotetype="0x04"/-->
+<!--sectype type="0x20" quotetype="0x08"/-->
+<!--sectype type="0x20" quotetype="0x10"/-->
+<!--sectype type="0x20" quotetype="0x20"/-->
+<!--sectype type="0x20" quotetype="0xff"/-->
+<!--sectype type="0xff" quotetype="0x01"/-->
+<!--sectype type="0xff" quotetype="0xff"/-->
+<!--sectype type="0xff" quotetype="0x04"/-->
+<!--sectype type="0xff" quotetype="0x08"/-->
+<!--sectype type="0xff" quotetype="0x10"/-->
+<!--sectype type="0xff" quotetype="0x20"/-->
+<!--sectype type="0xff" quotetype="0xff"/-->

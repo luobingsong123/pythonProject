@@ -1,0 +1,33 @@
+# coding=utf-8
+from selenium import webdriver
+from time import sleep
+
+if __name__ == '__main__':
+    driver = webdriver.Chrome()
+    driver.get("https://192.168.1.202/")
+    sleep(2)
+    driver.find_element_by_id("details-button").click()
+    sleep(0.5)
+    driver.find_element_by_id("proceed-link").click()
+    sleep(3)
+    driver.switch_to.frame('modalFrame')
+    driver.find_element_by_name('usernameInput').send_keys('huayun')
+    driver.find_element_by_name('passwordInput').send_keys('huayun123456')
+    driver.find_element_by_name('ID_LOGON').click()
+    sleep(3)
+    driver.switch_to.default_content()
+    driver.switch_to.frame('appFrame')
+    driver.switch_to.frame('frameDirectory')
+    driver.find_element_by_id('tree_pwrMgmt').click()
+    sleep(0.5)
+    driver.find_element_by_id('nav_pwrServer').click()
+    sleep(0.5)
+    driver.switch_to.default_content()
+    driver.switch_to.frame('appFrame')
+    driver.switch_to.frame('frameContent')
+    driver.switch_to.frame('iframeContent')
+    sleep(0.5)
+    driver.find_element_by_id('ColdButton').click()
+    sleep(0.5)
+    driver.switch_to.alert.accept()
+    driver.quit()

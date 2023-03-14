@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<client_cfg>
+	<fuction timestamp="0" type="3"/>
+	<multicast device="enp94s0f1" direct="1" ip="20.20.1.80" mutilip="235.0.0.15" port="8887"/>
+	<subcribe apiversion="1.0.0" ip="192.168.1.16" mac="00:0f:53:90:bf:d1" password="123456" port="9999" username="ap5"/>
+	<data subType="0" type="8"/>
+	<test_time timeType="1"/>
+	<bind_core type="1">
+		<cpu_core>26</cpu_core>
+	</bind_core>
+</client_cfg>
