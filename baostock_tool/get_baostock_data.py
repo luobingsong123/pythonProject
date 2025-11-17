@@ -3,7 +3,7 @@ import baostock as bs
 import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
-from some_tool.logger_tool import setup_logger
+from utils.logger_utils import setup_logger
 import sys
 import configparser
 import os
@@ -391,7 +391,7 @@ def main():
     # 新数据库配置
     db_config = {
         'host': config.get("database","host"),
-        'port': int(config.get("database", "port")),
+        'port': config.getint("database", "port"),
         'user': config.get("database","username"),
         'password': config.get("database","password"),
         'database': config.get("database","database")  # 修改为新数据库名

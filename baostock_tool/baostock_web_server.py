@@ -1,18 +1,34 @@
 from flask import Flask, render_template, jsonify, request
 import pymysql
-import json
 from datetime import datetime, timedelta
 import pandas as pd
+import configparser
+from utils.logger_utils import setup_logger
+import os
+
+# 配置获取
+config_path = os.path.join("./config.ini")
+# 检查文件是否存在
+if not os.path.exists(config_path):
+    raise FileNotFoundError(f"配置文件 {config_path} 未找到！")
+# 创建配置解析器
+config = configparser.ConfigParser()
+config.read(config_path, encoding="utf-8")  # 注意编码，避免中文乱码
+
+# 配置日志
+logger = setup_logger(logger_name=__name__,
+                      log_level=config.get("logging","level"),
+                      log_dir=config.get("logging","log_dir"),)
 
 app = Flask(__name__)
 
 # 数据库配置
 DB_CONFIG = {
-    'host': '192.168.0.100',
-    'user': 'root',
-    'port': 3307,
-    'password': 'qq852631192',
-    'database': 'baostock_api_market_data',
+    'host': config.get("database", "host"),
+    'port': config.getint("database", "port"),
+    'user': config.get("database", "username"),
+    'password': config.get("database", "password"),
+    'database': config.get("database", "database"),  # 修改为新数据库名
     'charset': 'utf8mb4'
 }
 
@@ -185,4 +201,4 @@ def get_stock_info():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host=config.get("webserver","host"), port=config.getint("webserver","port"), debug=True)
