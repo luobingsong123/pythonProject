@@ -1,42 +1,26 @@
 # -*- coding: utf-8 -*-
-"""
-Baostock数据获取与数据库写入脚本（新数据库版本）
-本代码仅用于回测研究，实盘使用风险自担
-"""
-
 import baostock as bs
 import pandas as pd
 import pymysql
-import logging
-import time
 from datetime import datetime, timedelta
+from some_tool.logger_tool import setup_logger
 import sys
+import configparser
+import os
+
+# 配置获取
+config_path = os.path.join("./config.ini")
+# 检查文件是否存在
+if not os.path.exists(config_path):
+    raise FileNotFoundError(f"配置文件 {config_path} 未找到！")
+# 创建配置解析器
+config = configparser.ConfigParser()
+config.read(config_path, encoding="utf-8")  # 注意编码，避免中文乱码
 
 # 配置日志
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # 设置 logger 的最低日志级别
-log_date = datetime.now().strftime("%Y-%m-%d")
-
-# 2. 创建「文件 Handler」：写入日志到文件
-file_handler = logging.FileHandler(
-    filename=log_date + '_baostockAPI_running.log',       # 日志文件名（可自定义路径，如 './logs/app.log'）
-    mode='a',                 # 模式：'a' 追加（默认），'w' 覆盖
-    encoding='utf-8'          # 避免中文乱码（必加！）
-)
-file_handler.setLevel(logging.INFO)  # 文件日志的级别（可单独设置，比如比 logger 低）
-
-# 3. 创建「控制台 Handler」：输出日志到控制台
-console_handler = logging.StreamHandler(sys.stdout)  # 输出到标准输出（控制台）
-console_handler.setLevel(logging.INFO)  # 控制台日志的级别
-
-# 4. 定义日志格式（两个 Handler 共用同一份格式）
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)    # 给文件 Handler 设置格式
-console_handler.setFormatter(formatter) # 给控制台 Handler 设置格式
-
-# 5. 将 Handler 添加到 logger（关键！否则 Handler 不生效）
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+logger = setup_logger(logger_name=__name__,
+                      log_level=config.get("logging","level"),
+                      log_dir=config.get("logging","log_dir"),)
 
 
 class BaostockDataCollector:
@@ -406,11 +390,11 @@ def main():
     """主函数"""
     # 新数据库配置
     db_config = {
-        'host': '192.168.0.100',
-        'user': 'root',
-        'port': 3307,
-        'password': 'qq852631192',
-        'database': 'baostock_api_market_data'  # 修改为新数据库名
+        'host': config.get("database","host"),
+        'port': int(config.get("database", "port")),
+        'user': config.get("database","username"),
+        'password': config.get("database","password"),
+        'database': config.get("database","database")  # 修改为新数据库名
     }
 
     # 创建收集器实例
