@@ -36,7 +36,7 @@ def setup_logger(
     # 4. 生成最终的日志文件名（默认用日期）
     if not log_filename:
         log_date = datetime.now().strftime("%Y-%m-%d")
-        log_filename = f"{log_date}_baostockAPI_running.log"
+        log_filename = f"{log_date}{logger_name}.log"
 
     # 5. 创建「文件 Handler」：写入日志到文件
     file_handler = logging.FileHandler(
