@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import baostock as bs
 import pandas as pd
+import pandas_ta as ta
 import pymysql
 from datetime import datetime, timedelta
 from utils.logger_utils import setup_logger
