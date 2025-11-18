@@ -150,3 +150,14 @@ CREATE TABLE `stock_minute_data` (
  PARTITION `p202510` VALUES LESS THAN (202511) ENGINE = InnoDB,
  PARTITION `p202511` VALUES LESS THAN (202512) ENGINE = InnoDB,
  PARTITION `p_future` VALUES LESS THAN MAXVALUE ENGINE = InnoDB);
+
+-- 创建交易日数据表
+CREATE TABLE IF NOT EXISTS trade_calendar (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    calendar_date DATE NOT NULL UNIQUE COMMENT '日历日期',
+    is_trading_day TINYINT(1) NOT NULL COMMENT '是否交易日：0-否，1-是',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_date (calendar_date),
+    INDEX idx_trading (is_trading_day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易日历数据表';

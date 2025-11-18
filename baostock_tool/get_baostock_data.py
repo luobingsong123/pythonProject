@@ -8,16 +8,13 @@ import sys
 import configparser
 import os
 
-# 配置获取
+
 config_path = os.path.join("./config.ini")
-# 检查文件是否存在
 if not os.path.exists(config_path):
     raise FileNotFoundError(f"配置文件 {config_path} 未找到！")
-# 创建配置解析器
 config = configparser.ConfigParser()
 config.read(config_path, encoding="utf-8")  # 注意编码，避免中文乱码
 
-# 配置日志
 logger = setup_logger(logger_name=__name__,
                       log_level=config.get("logging","level"),
                       log_dir=config.get("logging","log_dir"),)
@@ -103,7 +100,7 @@ class BaostockDataCollector:
         """
         if query_date is None:
             # query_date = datetime.now().strftime("%Y-%m-%d")
-            query_date = "2025-11-14"
+            query_date = "2025-11-17"
 
         try:
             rs = bs.query_all_stock(day=query_date)
@@ -235,20 +232,24 @@ class BaostockDataCollector:
                 amount = float(row['amount']) if row['amount'] != '' else 0
                 turn = float(row['turn']) if 'turn' in row and row['turn'] != '' else 0
                 pctchg = float(row['pctChg']) if 'pctChg' in row and row['pctChg'] != '' else 0
+                peTTM = float(row['peTTM']) if 'peTTM' in row and row['peTTM'] != '' else 0
+                pbMRQ = float(row['pbMRQ']) if 'pbMRQ' in row and row['pbMRQ'] != '' else 0
+                psTTM = float(row['psTTM']) if 'psTTM' in row and row['psTTM'] != '' else 0
+                pcfNcfTTM = float(row['pcfNcfTTM']) if 'pcfNcfTTM' in row and row['pcfNcfTTM'] != '' else 0
                 tradestatus = 1 if row.get('tradestatus', '1') == '1' else 0
                 isst = 1 if row.get('isST', '0') == '1' else 0
 
                 data_tuples.append((
                     date, market, code_int, 'd', open_price, high, low, close, preclose,
-                    volume, amount, 2, turn, tradestatus, pctchg, isst
+                    volume, amount, 2, turn, tradestatus, pctchg, peTTM, pbMRQ, psTTM, pcfNcfTTM, isst
                 ))
 
             # 批量插入
             insert_sql = """
             REPLACE INTO stock_daily_data 
             (date, market, code_int, frequency, open, high, low, close, preclose, volume, amount, 
-             adjustflag, turn, tradestatus, pctChg, isST, created_at, updated_at) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+             adjustflag, turn, tradestatus, pctChg, peTTM, pbMRQ, psTTM, pcfNcfTTM, isST, created_at, updated_at) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """
 
