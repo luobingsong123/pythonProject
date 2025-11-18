@@ -404,7 +404,8 @@ def main():
     # 执行全量数据收集
     success = collector.collect_all_data(
         start_date="2020-01-01",  # 从2020年开始拉取
-        minute_frequencies=['5', '15', '30']  # 获取多种分钟线数据
+        # minute_frequencies=['5', '15', '30']  # 获取多种分钟线数据
+        minute_frequencies=['5']  # 获取多种分钟线数据
     )
 
     if success:
