@@ -143,7 +143,7 @@ class BaostockDataCollector:
                 code_name = row.get('code_name', '')
 
                 # 跳过指数代码
-                if (not full_code.startswith(('sh.', 'sz.'))) or (full_code.startswith(('sh.000', 'sz.399')) and full_code != 'sh.000300'):
+                if not full_code.startswith(('sh.', 'sz.')) or '000' in full_code:
                     continue
 
                 try:
