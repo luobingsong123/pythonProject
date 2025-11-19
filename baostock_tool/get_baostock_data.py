@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import time
+
 import baostock as bs
 import pandas as pd
 import pandas_ta as ta
@@ -135,20 +137,20 @@ class BaostockDataCollector:
 
         try:
             inserted_count = 0
-            updated_count = 0
 
             for _, row in stock_df.iterrows():
                 full_code = row['code']
                 code_name = row.get('code_name', '')
 
                 # 跳过指数代码
-                if not full_code.startswith(('sh.', 'sz.')) or '000' in full_code:
+                if (not full_code.startswith(('sh.', 'sz.'))) or (full_code.startswith(('sh.000', 'sz.399')) and full_code != 'sh.000300'):
                     continue
 
                 try:
                     market, code_int = self.parse_stock_code(full_code)
                 except ValueError as e:
                     logger.warning(f"跳过无法解析的代码: {full_code}")
+                    logger.error(str(e))
                     continue
 
                 # 使用REPLACE INTO处理重复数据
@@ -219,7 +221,6 @@ class BaostockDataCollector:
         try:
             # 解析股票代码
             market, code_int = self.parse_stock_code(code)
-
             data_tuples = []
             for _, row in daily_df.iterrows():
                 # 数据清洗和转换
@@ -232,19 +233,17 @@ class BaostockDataCollector:
                 volume = int(float(row['volume'])) if row['volume'] != '' else 0
                 amount = float(row['amount']) if row['amount'] != '' else 0
                 turn = float(row['turn']) if 'turn' in row and row['turn'] != '' else 0
-                pctchg = float(row['pctChg']) if 'pctChg' in row and row['pctChg'] != '' else 0
-                peTTM = float(row['peTTM']) if 'peTTM' in row and row['peTTM'] != '' else 0
-                pbMRQ = float(row['pbMRQ']) if 'pbMRQ' in row and row['pbMRQ'] != '' else 0
-                psTTM = float(row['psTTM']) if 'psTTM' in row and row['psTTM'] != '' else 0
-                pcfNcfTTM = float(row['pcfNcfTTM']) if 'pcfNcfTTM' in row and row['pcfNcfTTM'] != '' else 0
+                pctchg = self.clamp(float(row['pctChg']) if 'pctChg' in row and row['pctChg'] != '' else 0)
+                peTTM = self.clamp(float(row['peTTM']) if 'peTTM' in row and row['peTTM'] != '' else 0)
+                pbMRQ = self.clamp(float(row['pbMRQ']) if 'pbMRQ' in row and row['pbMRQ'] != '' else 0)
+                psTTM = self.clamp(float(row['psTTM']) if 'psTTM' in row and row['psTTM'] != '' else 0)
+                pcfNcfTTM = self.clamp(float(row['pcfNcfTTM']) if 'pcfNcfTTM' in row and row['pcfNcfTTM'] != '' else 0)
                 tradestatus = 1 if row.get('tradestatus', '1') == '1' else 0
                 isst = 1 if row.get('isST', '0') == '1' else 0
-
                 data_tuples.append((
                     date, market, code_int, 'd', open_price, high, low, close, preclose,
                     volume, amount, 2, turn, tradestatus, pctchg, peTTM, pbMRQ, psTTM, pcfNcfTTM, isst
                 ))
-
             # 批量插入
             insert_sql = """
             REPLACE INTO stock_daily_data 
@@ -253,15 +252,24 @@ class BaostockDataCollector:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """
-
             self.cursor.executemany(insert_sql, data_tuples)
             self.conn.commit()
             logger.info(f"股票{code} 日线数据批量保存 {len(data_tuples)} 条")
             return True
 
         except Exception as e:
+            # 获取traceback对象
+            _, _, tb = sys.exc_info()
+            # 提取报错的行数
+            error_line = tb.tb_lineno
+            print(f"报错行数：{error_line}")  # 输出：报错行数：3（假设try块的第3行是1/0）
+            print(f"异常类型：{type(e).__name__}")  # 输出：异常类型：ZeroDivisionError
             self.conn.rollback()
             logger.error(f"批量保存日线数据异常: {e}")
+            with open("error_daily_data.csv", "a") as f:
+                f.write(f"股票代码: {code}\n")
+                f.write(daily_df.to_csv(index=False, encoding='utf-8'))
+                f.write("\n")
             return False
 
     def save_minute_data_batch(self, code, minute_df, frequency):
@@ -386,6 +394,12 @@ class BaostockDataCollector:
             # 清理资源
             self.close_database()
             self.logout_baostock()
+
+    @staticmethod
+    def clamp(value):
+        lower_bound = -9999.9999
+        upper_bound = 9999.9999
+        return max(lower_bound, min(upper_bound, value))
 
 
 def main():
