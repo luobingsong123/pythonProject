@@ -67,7 +67,7 @@ CREATE TABLE `stock_minute_data` (
   `low` decimal(10,4) NOT NULL COMMENT '最低价',
   `close` decimal(10,4) NOT NULL COMMENT '收盘价',
   `volume` bigint(20) NOT NULL COMMENT '成交量(股)',
-  `amount` decimal(15,4) NOT NULL COMMENT '成交额(元)',
+  `amount` decimal(17,4) NOT NULL COMMENT '成交额(元)',
   `adjustflag` tinyint(4) NOT NULL DEFAULT 3 COMMENT '复权状态：1=后复权, 2=前复权, 3=不复权',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),

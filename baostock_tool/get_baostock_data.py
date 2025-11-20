@@ -258,17 +258,18 @@ class BaostockDataCollector:
             return True
 
         except Exception as e:
-            # 获取traceback对象
-            _, _, tb = sys.exc_info()
-            # 提取报错的行数
-            error_line = tb.tb_lineno
-            print(f"报错行数：{error_line}")  # 输出：报错行数：3（假设try块的第3行是1/0）
-            print(f"异常类型：{type(e).__name__}")  # 输出：异常类型：ZeroDivisionError
+            # # 获取traceback对象
+            # _, _, tb = sys.exc_info()
+            # # 提取报错的行数
+            # error_line = tb.tb_lineno
+            # print(f"报错行数：{error_line}")  # 输出：报错行数：3（假设try块的第3行是1/0）
+            # print(f"异常类型：{type(e).__name__}")  # 输出：异常类型：ZeroDivisionError
             self.conn.rollback()
             logger.error(f"批量保存日线数据异常: {e}")
-            with open("error_daily_data.csv", "a") as f:
+            with open(code + "data_tuples.csv", "w") as f:
                 f.write(f"股票代码: {code}\n")
-                f.write(daily_df.to_csv(index=False, encoding='utf-8'))
+                for item in data_tuples:
+                    f.write(",".join(map(str, item)) + "\n")
                 f.write("\n")
             return False
 
@@ -354,8 +355,9 @@ class BaostockDataCollector:
                 # 5.筛选需要处理的股票（排除已存在的和特定代码）
                 stocks_to_process = [
                     code for code in stock_df['code']
-                    if code.startswith(('sh.', 'sz.')) and '000' not in code
-                       and code.split('.')[1] not in existing_stocks  # 提取数字部分检查是否已存在
+                    if code.startswith(('sh.', 'sz.')) and code.split('.')[1] not in existing_stocks  # 提取数字部分检查是否已存在
+                    # if code.startswith(('sh.', 'sz.')) and '000' not in code
+                    #    and code.split('.')[1] not in existing_stocks  # 提取数字部分检查是否已存在
                 ]
 
                 logger.info(f"需要处理 {len(stocks_to_process)} 只A股股票的K线数据")
