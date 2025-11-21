@@ -50,24 +50,33 @@ class MACDStrategy(bt.Strategy):
             period_me2=self.params.slow,
             period_signal=self.params.signal
         )
-
-        # 交叉信号
         self.macd_cross = bt.indicators.CrossOver(self.macd.macd, self.macd.signal)
 
-        # 添加交易计数器
+        # 增强手续费统计
         self.trade_count = 0
+        self.total_commission = 0  # 总手续费
+        self.buy_commission = 0  # 买入手续费
+        self.sell_commission = 0  # 卖出手续费
+        self.trade_wins = 0  # 盈利交易次数
         self.order = None
 
     def notify_order(self, order):
         if order.status in [order.Completed]:
+            commission = order.executed.comm
+
             if order.isbuy():
                 self.trade_count += 1
-                print(f'买入完成: 价格={order.executed.price:.2f}, 成本={order.executed.value:.2f}, 手续费={order.executed.comm:.2f}')
+                self.buy_commission += commission
+                self.total_commission += commission
+                print(f'买入完成: 价格={order.executed.price:.2f}, 手续费={commission:.2f}')
             elif order.issell():
                 self.trade_count += 1
-                print(f'卖出完成: 价格={order.executed.price:.2f}, 收益={order.executed.pnl:.2f}')
+                self.sell_commission += commission
+                self.total_commission += commission
+                if order.executed.pnl > 0:
+                    self.trade_wins += 1
+                print(f'卖出完成: 价格={order.executed.price:.2f}, 收益={order.executed.pnl:.2f}, 手续费={commission:.2f}')
 
-            # 重置订单状态
             self.order = None
 
     def next(self):
@@ -118,8 +127,9 @@ def safe_get_analysis(analyzer, key_path, default="无法计算"):
 
 
 def run_backtest():
+    start_time = pd.Timestamp.now()
     # 获取更早的数据以确保MACD有足够初始化周期
-    stock_data = get_stock_data_from_db("600101", "sh", "2019-01-01")
+    stock_data = get_stock_data_from_db("601288", "sh", "2019-01-01")
     print(f"数据量：{len(stock_data)}条")
     print(f"数据时间范围：{stock_data.index[0]} 到 {stock_data.index[-1]}")
 
@@ -164,7 +174,8 @@ def run_backtest():
 
     # 设置交易手续费（A股标准）
     cerebro.broker.setcommission(commission=0.001)  # 0.1%手续费
-
+    # 设置滑点 - 百分比方式
+    cerebro.broker.set_slippage_perc(perc=0.002)  # 0.2%滑点
     # 添加分析器
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
@@ -182,10 +193,19 @@ def run_backtest():
     total_return = (final_value / initial_cash - 1) * 100
 
     print('\n=== 回测结果 ===')
+    print('回测时间: ', pd.Timestamp.now() - start_time)
     print(f'初始资金: {initial_cash:,.2f}')
     print(f'最终资金: {final_value:,.2f}')
     print(f'总收益率: {total_return:.2f}%')
     print(f'交易次数: {strategy.trade_count}')
+    print(f'盈利交易次数: {strategy.trade_wins}')
+
+
+    # 手续费统计
+    print(f'总手续费: {strategy.total_commission:.2f}')
+    print(f'买入手续费: {strategy.buy_commission:.2f}')
+    print(f'卖出手续费: {strategy.sell_commission:.2f}')
+    print(f'手续费占最终资金比例: {(strategy.total_commission / final_value * 100):.2f}%')
 
     # 安全获取分析器结果
     sharpe_ratio = safe_get_analysis(strategy.analyzers.sharpe, 'sharperatio', 0)
@@ -199,6 +219,7 @@ def run_backtest():
     # 交易分析
     trades_analysis = safe_get_analysis(strategy.analyzers.trades, 'total.total', 0)
     print(f'总交易数: {trades_analysis}')
+    print(f'交易胜率： {(strategy.trade_wins / trades_analysis * 100) if trades_analysis > 0 else 0:.2f}%')
 
     # 如果收益率不为0，绘制图表
     if abs(total_return) > 0.01 and strategy.trade_count > 0:
