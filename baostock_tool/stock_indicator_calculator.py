@@ -52,7 +52,7 @@ class StockIndicatorCalculator:
     def get_stock_data(self, market, code_int):
         """获取单只股票的完整历史数据[6](@ref)"""
         query = f"""
-        SELECT date, open, high, low, close, volume, amount, preclose, isST
+        SELECT date, open, high, low, close, volume, amount, turn, preclose, isST
         FROM stock_daily_data 
         WHERE market = '{market}' AND code_int = {code_int} AND frequency = 'd'
         ORDER BY date ASC
@@ -69,7 +69,7 @@ class StockIndicatorCalculator:
         highs = df['high'].astype(float).values
         lows = df['low'].astype(float).values
         # volumes = df['volume'].astype(float).values
-        turn = df['turn'].astype(float).values * 100 if 'turn' in df.columns else 1
+        turn = df['turn'].astype(float).values if 'turn' in df.columns and df['turn'].astype(float).values > 0 else 1
         amount = df['amount'].astype(float).values
 
         try:
@@ -119,7 +119,7 @@ class StockIndicatorCalculator:
 
             # 流动市值计算（需要流通股本数据，这里用总市值替代）
             # 注意：实际应用中需要获取流通股本数据
-            df['close_fcap'] = amount / turn  # 简化计算
+            df['close_fcap'] =(amount / turn)/100   # 简化计算
 
         except Exception as e:
             logger.info(f"指标计算错误: {e}")
@@ -192,7 +192,7 @@ class StockIndicatorCalculator:
         logger.info(f"找到 {len(stock_codes)} 只股票需要处理")
 
         if test_mode:
-            stock_codes = stock_codes[:1]  # 测试模式下只处理1只股票
+            stock_codes = stock_codes[600:610]  # 测试模式下只处理10只股票
             logger.info(f"测试模式：只处理前 {len(stock_codes)} 只股票")
 
         processed = 0
