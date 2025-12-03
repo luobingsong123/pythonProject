@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pymysql
 from sqlalchemy import create_engine
-import talib        # pip install TA-Lib
+import talib
 from tqdm import tqdm
 import time
 import warnings
@@ -10,13 +10,15 @@ from datetime import datetime, timedelta
 from baostock_tool.utils.logger_utils import setup_logger
 import sys
 import baostock_tool.config
+import concurrent.futures
+from threading import Lock
 
 db_config_ = baostock_tool.config.get_db_config()
 log_config = baostock_tool.config.get_log_config()
 
 logger = setup_logger(logger_name=__name__,
-                   log_level=log_config["log_level"],
-                   log_dir=log_config["log_dir"], )
+                      log_level=log_config["log_level"],
+                      log_dir=log_config["log_dir"], )
 
 warnings.filterwarnings('ignore')
 
@@ -28,18 +30,27 @@ class StockIndicatorCalculator:
         db_config: 数据库连接配置字典
         """
         self.db_config = db_config
-        try:
-            self.engine = create_engine(
-                f"mysql+pymysql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-            )
-            self.connection = self.engine.connect()
-            logger.info("数据库连接成功")
-        except Exception as e:
-            logger.info(f"数据库连接失败: {e}")
-            raise
+        self.connection_lock = Lock()  # 数据库连接锁，确保线程安全
+        self._create_connection()
+
+    def _create_connection(self):
+        """创建数据库连接（线程安全）"""
+        with self.connection_lock:
+            try:
+                self.engine = create_engine(
+                    f"mysql+pymysql://{self.db_config['user']}:{self.db_config['password']}@{self.db_config['host']}:{self.db_config['port']}/{self.db_config['database']}",
+                    pool_size=20,  # 增加连接池大小
+                    max_overflow=30,  # 增加最大溢出连接数
+                    pool_pre_ping=True  # 连接前ping检测
+                )
+                self.connection = self.engine.connect()
+                logger.info("数据库连接成功")
+            except Exception as e:
+                logger.error(f"数据库连接失败: {e}")
+                raise
 
     def get_all_stock_codes(self):
-        """获取所有股票代码列表[3](@ref)"""
+        """获取所有股票代码列表"""
         query = """
         SELECT DISTINCT market, code_int 
         FROM stock_daily_data 
@@ -50,7 +61,7 @@ class StockIndicatorCalculator:
         return list(zip(df['market'], df['code_int']))
 
     def get_stock_data(self, market, code_int):
-        """获取单只股票的完整历史数据[6](@ref)"""
+        """获取单只股票的完整历史数据"""
         query = f"""
         SELECT date, open, high, low, close, volume, amount, turn, preclose, isST
         FROM stock_daily_data 
@@ -61,32 +72,39 @@ class StockIndicatorCalculator:
 
     def calculate_technical_indicators(self, df):
         """计算所有技术指标"""
-        if len(df) < 34:  # 最长指标需要34日数据
+        if len(df) < 34:
             return df
 
         # 价格数据转换为numpy数组
         closes = df['close'].astype(float).values
         highs = df['high'].astype(float).values
         lows = df['low'].astype(float).values
-        # volumes = df['volume'].astype(float).values
-        turn = df['turn'].astype(float).values if 'turn' in df.columns and df['turn'].astype(float).values > 0 else 1
         amount = df['amount'].astype(float).values
 
+        # 修复turn列的处理逻辑
+        if 'turn' in df.columns:
+            # 确保turn列有有效值，将无效值替换为1
+            turn = df['turn'].astype(float).values.copy()
+            turn[turn <= 0] = 1.0  # 将小于等于0的值替换为1
+        else:
+            # 如果turn列不存在，创建全为1的数组
+            turn = np.ones(len(df))
+
         try:
-            # MACD指标计算[1](@ref)
+            # MACD指标计算
             macd_dif, macd_dea, macd_hist = talib.MACD(closes, fastperiod=12, slowperiod=26, signalperiod=9)
             df['macd_dif'] = macd_dif
             df['macd_dea'] = macd_dea
             df['macd_histogram'] = macd_hist
 
-            # 移动平均线[2](@ref)
+            # 移动平均线
             df['ma_5'] = talib.SMA(closes, timeperiod=5)
             df['ma_8'] = talib.SMA(closes, timeperiod=8)
             df['ma_13'] = talib.SMA(closes, timeperiod=13)
             df['ma_21'] = talib.SMA(closes, timeperiod=21)
             df['ma_34'] = talib.SMA(closes, timeperiod=34)
 
-            # KDJ指标[4](@ref)
+            # KDJ指标
             df['kdj_k'], df['kdj_d'] = talib.STOCH(highs, lows, closes,
                                                    fastk_period=9, slowk_period=3,
                                                    slowk_matype=0, slowd_period=3, slowd_matype=0)
@@ -101,32 +119,32 @@ class StockIndicatorCalculator:
             df['cci_10'] = talib.CCI(highs, lows, closes, timeperiod=10)
             df['cci_20'] = talib.CCI(highs, lows, closes, timeperiod=20)
 
-            # 涨跌停判断（A股规则）[7](@ref)
+            # 涨跌停判断（A股规则）
             df['pct_chg'] = (df['close'] - df['preclose']) / df['preclose'] * 100
-            df['is_raising_limit'] = 0  # 默认值
+            df['is_raising_limit'] = 0
 
             # ST股涨跌停幅度5%，非ST股10%
             for i in range(1, len(df)):
-                if df['isST'].iloc[i] == 1:  # ST股
+                if df['isST'].iloc[i] == 1:
                     limit_rate = 0.05
-                else:  # 非ST股
+                else:
                     limit_rate = 0.1
 
-                if df['pct_chg'].iloc[i] >= limit_rate * 100:  # 涨停
+                if df['pct_chg'].iloc[i] >= limit_rate * 100:
                     df.loc[df.index[i], 'is_raising_limit'] = 1
-                elif df['pct_chg'].iloc[i] <= -limit_rate * 100:  # 跌停
+                elif df['pct_chg'].iloc[i] <= -limit_rate * 100:
                     df.loc[df.index[i], 'is_raising_limit'] = -1
 
-            # 流动市值计算（需要流通股本数据，这里用总市值替代）
-            # 注意：实际应用中需要获取流通股本数据
-            df['close_fcap'] =(amount / turn)/100   # 简化计算
+            # 流动市值计算
+            df['close_fcap'] = (amount / turn) / 100
 
         except Exception as e:
-            logger.info(f"指标计算错误: {e}")
+            logger.error(f"指标计算错误: {e}")
 
         return df
 
     def update_database_batch(self, market, code_int, df, batch_size=1000):
+        """批量更新数据库（线程安全版本）"""
         if df.empty:
             return
 
@@ -136,105 +154,135 @@ class StockIndicatorCalculator:
             'rsi_6', 'rsi_12', 'rsi_24', 'cci_10', 'cci_20'
         ]
 
-        for i in range(0, len(df), batch_size):
-            batch_df = df.iloc[i:i + batch_size].copy()
-
-            # 构建字典列表（SQLAlchemy 2.0要求格式）
-            dict_list = []
-            for _, row in batch_df.iterrows():
-                record_dict = {
-                    'date': row['date'],
-                    'market': market,
-                    'code_int': code_int,
-                    'frequency': 'd'
-                }
-                # 添加技术指标字段
-                for col in update_columns:
-                    record_dict[col] = row[col] if pd.notna(row[col]) else None
-                dict_list.append(record_dict)
-
-            # 构建ON DUPLICATE KEY UPDATE子句
-            set_clause = ', '.join([f"{col} = VALUES({col})" for col in update_columns])
-
-            update_query = f"""
-            INSERT INTO stock_daily_data 
-            (date, market, code_int, frequency, {', '.join(update_columns)})
-            VALUES 
-            (:date, :market, :code_int, :frequency, {', '.join([f':{col}' for col in update_columns])})
-            ON DUPLICATE KEY UPDATE
-            {set_clause}
-            """
+        # 使用线程锁确保数据库操作安全
+        with self.connection_lock:
             try:
-                # 使用字典列表格式执行（SQLAlchemy 2.0兼容）
-                from sqlalchemy import text
-                stmt = text(update_query)
-                # 分批执行，避免参数过多
-                chunk_size = 100  # 每批100条记录
-                for j in range(0, len(dict_list), chunk_size):
-                    chunk = dict_list[j:j + chunk_size]
+                # 重新获取连接（确保线程安全）
+                if self.connection.closed:
+                    self._create_connection()
 
-                    # 使用connection的execute方法，传递字典列表
-                    result = self.connection.execute(stmt, chunk)
-                    logger.info(f"批次 {i // batch_size + 1}.{j // chunk_size + 1} 更新 {result.rowcount} 行")
+                for i in range(0, len(df), batch_size):
+                    batch_df = df.iloc[i:i + batch_size].copy()
 
-                # 提交事务
-                self.connection.commit()
+                    dict_list = []
+                    for _, row in batch_df.iterrows():
+                        record_dict = {
+                            'date': row['date'],
+                            'market': market,
+                            'code_int': code_int,
+                            'frequency': 'd'
+                        }
+                        for col in update_columns:
+                            record_dict[col] = row[col] if pd.notna(row[col]) else None
+                        dict_list.append(record_dict)
+
+                    set_clause = ', '.join([f"{col} = VALUES({col})" for col in update_columns])
+
+                    update_query = f"""
+                    INSERT INTO stock_daily_data 
+                    (date, market, code_int, frequency, {', '.join(update_columns)})
+                    VALUES 
+                    (:date, :market, :code_int, :frequency, {', '.join([f':{col}' for col in update_columns])})
+                    ON DUPLICATE KEY UPDATE
+                    {set_clause}
+                    """
+
+                    from sqlalchemy import text
+                    stmt = text(update_query)
+
+                    chunk_size = 100
+                    for j in range(0, len(dict_list), chunk_size):
+                        chunk = dict_list[j:j + chunk_size]
+                        result = self.connection.execute(stmt, chunk)
+                        logger.debug(f"股票 {market}{code_int:06d} 批次更新 {result.rowcount} 行")
+
+                    self.connection.commit()
 
             except Exception as e:
-                logger.info(f"批量更新失败: {e}")
-                # 确保在异常时回滚
+                logger.error(f"股票 {market}{code_int:06d} 批量更新失败: {e}")
                 self.connection.rollback()
                 raise
 
-    def process_all_stocks(self, batch_size=1000, test_mode=False):
-        """处理所有股票数据[3](@ref)"""
+    def process_single_stock(self, stock_info):
+        """处理单只股票（用于并发执行）"""
+        market, code_int = stock_info
+        try:
+            # 为每个线程创建独立的数据库连接
+            thread_calculator = StockIndicatorCalculator(self.db_config)
+
+            df = thread_calculator.get_stock_data(market, code_int)
+            if len(df) > 0:
+                df_with_indicators = thread_calculator.calculate_technical_indicators(df)
+                thread_calculator.update_database_batch(market, code_int, df_with_indicators, batch_size=500)
+                thread_calculator.close_connection()
+                return (market, code_int, True, f"成功处理 {len(df)} 行数据")
+            else:
+                thread_calculator.close_connection()
+                return (market, code_int, False, "无数据")
+
+        except Exception as e:
+            logger.error(f"处理股票 {market}{code_int:06d} 时出错: {e}")
+            return (market, code_int, False, str(e))
+
+    def process_all_stocks_concurrent(self, max_workers=10, test_mode=False):
+        """并发处理所有股票数据"""
         stock_codes = self.get_all_stock_codes()
         logger.info(f"找到 {len(stock_codes)} 只股票需要处理")
 
         if test_mode:
-            stock_codes = stock_codes[600:610]  # 测试模式下只处理10只股票
+            stock_codes = stock_codes[:50]  # 测试模式减少股票数量
             logger.info(f"测试模式：只处理前 {len(stock_codes)} 只股票")
 
-        processed = 0
         successful = 0
+        failed = 0
 
-        with tqdm(total=len(stock_codes), desc="处理进度") as pbar:
-            for market, code_int in stock_codes:
-                try:
-                    # 获取股票数据
-                    df = self.get_stock_data(market, code_int)
-                    logger.info(f"\n处理股票 {market}{code_int:06d}，数据行数: {len(df)}")
-                    if len(df) > 0:
-                        # 计算技术指标
-                        df_with_indicators = self.calculate_technical_indicators(df)
+        # 使用线程池并发处理
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_stock = {
+                executor.submit(self.process_single_stock, stock): stock
+                for stock in stock_codes
+            }
 
-                        # 更新数据库
-                        self.update_database_batch(market, code_int, df_with_indicators, batch_size)
+            # 使用tqdm显示进度
+            with tqdm(total=len(stock_codes), desc="并发处理进度") as pbar:
+                for future in concurrent.futures.as_completed(future_to_stock):
+                    stock = future_to_stock[future]
+                    market, code_int = stock
 
-                        successful += 1
+                    try:
+                        result = future.result()
+                        market, code_int, success, message = result
 
-                    processed += 1
-                    pbar.set_description(f"处理进度 [{market}{code_int:06d}]")
+                        if success:
+                            successful += 1
+                            logger.info(f"✓ {market}{code_int:06d} - {message}")
+                        else:
+                            failed += 1
+                            logger.warning(f"✗ {market}{code_int:06d} - {message}")
+
+                    except Exception as exc:
+                        failed += 1
+                        logger.error(f"✗ {market}{code_int:06d} - 异常: {exc}")
+
                     pbar.update(1)
+                    pbar.set_description(f"处理进度 [成功: {successful} 失败: {failed}]")
 
-                    # 短暂休眠，避免数据库压力过大
-                    time.sleep(0.01)
+        logger.info(f"\n处理完成！成功: {successful}, 失败: {failed}, 总计: {len(stock_codes)}")
 
-                except Exception as e:
-                    logger.info(f"\n处理股票 {market}{code_int:06d} 时出错, 可能是单个股票已经处理完成: {e}")
-                    processed += 1
-                    pbar.update(1)
-                    continue
-
-        logger.info(f"\n处理完成！成功处理 {successful}/{processed} 只股票")
+    def process_all_stocks(self, batch_size=1000, test_mode=False):
+        """保留原有串行处理方式（兼容性）"""
+        # 默认使用并发处理，可以通过参数控制
+        return self.process_all_stocks_concurrent(max_workers=10, test_mode=test_mode)
 
     def close_connection(self):
-        """关闭数据库连接[4](@ref)"""
-        if self.connection:
-            self.connection.close()
-        if self.engine:
-            self.engine.dispose()
-        logger.info("数据库连接已关闭")
+        """关闭数据库连接"""
+        with self.connection_lock:
+            if hasattr(self, 'connection') and self.connection:
+                self.connection.close()
+            if hasattr(self, 'engine') and self.engine:
+                self.engine.dispose()
+        logger.debug("数据库连接已关闭")
 
 
 def main():
@@ -253,11 +301,11 @@ def main():
     try:
         calculator = StockIndicatorCalculator(db_config)
 
-        # 开始处理（测试模式设置为True，正式运行改为False）
-        calculator.process_all_stocks(batch_size=500, test_mode=False)
+        # 使用并发处理（可调整max_workers数量）
+        calculator.process_all_stocks_concurrent(max_workers=15, test_mode=False)
 
     except Exception as e:
-        logger.info(f"程序执行出错: {e}")
+        logger.error(f"程序执行出错: {e}")
     finally:
         if calculator:
             calculator.close_connection()
