@@ -3,10 +3,10 @@ import backtrader as bt
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
-from ..data_loader.market_loader import MarketDataLoader
-from ..data_loader.stock_loader import StockDataLoader
-from ..strategies.macd_strategy import MACDStrategy
-from ..logger_utils.logger_tool import get_logger
+from baostock_tool.utils.data_loader.market_loader import MarketDataLoader
+from baostock_tool.utils.data_loader.stock_loader import StockDataLoader
+from baostock_tool.utils.strategies.macd_strategy import MACDStrategy
+from baostock_tool.utils.logger_utils.logger_tool import get_logger
 
 
 # 本代码仅用于回测研究，实盘使用风险自担
@@ -75,6 +75,8 @@ class MultiStockBacktester:
     def run_batch_backtest(self, sample_size=50):
         """批量回测（支持并行）"""
         # 获取股票列表
+        trading_dates = self.market_loader.get_trading_dates('2020-01-01', '2024-12-31')
+        print(trading_dates)
         stock_list = self.market_loader.get_all_stock_codes()
         if sample_size and len(stock_list) > sample_size:
             stock_list = stock_list.sample(sample_size)  # 抽样测试

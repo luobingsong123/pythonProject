@@ -1,11 +1,13 @@
 # utils/data_loader/stock_loader.py
 import pandas as pd
 import backtrader as bt
-from ..logger_utils.logger_tool import get_logger
+from baostock_tool.utils.logger_utils.logger_tool import get_logger
+from sqlalchemy import create_engine
 
 
 class StockDataLoader:
     def __init__(self):
+
         self.engine = create_engine('mysql+pymysql://root:Root_123@192.168.1.78:3306/baostock_api_market_data')
         self.logger = get_logger(__name__)
 

@@ -1,9 +1,9 @@
 # utils/strategies/macd_strategy.py
 import backtrader as bt
-from .base_strategy import BaseStrategy
+# from baostock_tool.utils.base_strategy import BaseStrategy
 
 
-class MACDStrategy(BaseStrategy):
+class MACDStrategy():
     params = (
         ('fast', 12),
         ('slow', 26),

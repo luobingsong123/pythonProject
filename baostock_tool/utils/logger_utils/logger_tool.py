@@ -52,7 +52,7 @@ def setup_logger(
 
     # 7. 定义统一日志格式（两个 Handler 共用）
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        "%(asctime)s - %(name)s - Line: %(lineno)d - %(levelname)s - %(message)s"
         # 格式说明：
         # %(asctime)s: 时间（比如 2024-05-20 14:30:00,123）
         # %(name)s: Logger 名字（比如 main 或 __name__）
@@ -67,3 +67,27 @@ def setup_logger(
     logger.addHandler(console_handler)
 
     return logger  # 返回配置好的 Logger，供其他模块使用
+
+def get_logger(
+        logger_name: str = __name__,
+        log_level: int = logging.INFO,
+        log_dir: str = "./logs",
+        log_filename: str = None
+        ) -> logging.Logger:
+    """
+    获取配置好的 Logger（封装 setup_logger 方便调用）
+
+    参数说明：
+        logger_name: Logger 的标识（建议用模块名，比如 __name__）
+        log_level: 日志级别（DEBUG/INFO/WARNING/ERROR/CRITICAL）
+        log_dir: 日志文件存储的目录
+        log_filename: 自定义日志文件名
+    返回：
+        配置好的 logging.Logger 对象
+    """
+    return setup_logger(
+        logger_name=logger_name,
+        log_level=log_level,
+        log_dir=log_dir,
+        log_filename=log_filename
+    )

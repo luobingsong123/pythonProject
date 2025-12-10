@@ -7,14 +7,14 @@ from tqdm import tqdm
 import time
 import warnings
 from datetime import datetime, timedelta
-from baostock_tool.utils.logger_utils import setup_logger
+from backtest_platform.utils.logger_utils import setup_logger
 import sys
-import baostock_tool.config
+import backtest_platform.config
 import concurrent.futures
 from threading import Lock
 
-db_config_ = baostock_tool.config.get_db_config()
-log_config = baostock_tool.config.get_log_config()
+db_config_ = backtest_platform.config.get_db_config()
+log_config = backtest_platform.config.get_log_config()
 
 logger = setup_logger(logger_name=__name__,
                       log_level=log_config["log_level"],

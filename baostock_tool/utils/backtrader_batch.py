@@ -27,8 +27,8 @@ def main():
     # 保存详细结果
     if backtester.results:
         results_df = pd.DataFrame(backtester.results)
-        results_df.to_csv('../_tmp/batch_backtest_results.csv', index=False, encoding='utf-8-sig')
-        logger.info(f"详细结果已保存至: ../_tmp/batch_backtest_results.csv")
+        results_df.to_csv('../backtest_report/batch_backtest_results.csv', index=False, encoding='utf-8-sig')
+        logger.info(f"详细结果已保存至: ../backtest_report/batch_backtest_results.csv")
 
 
 if __name__ == '__main__':

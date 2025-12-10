@@ -1,26 +1,20 @@
 # -*- coding: utf-8 -*-
-import time
-
 import baostock as bs
 import pandas as pd
 import pandas_ta as ta
 import pymysql
 from datetime import datetime, timedelta
-from utils.logger_utils import setup_logger
+from backtest_platform.utils.logger_utils import setup_logger
 import sys
-import configparser
-import os
+import backtest_platform.config
 
-
-config_path = os.path.join("./config.ini")
-if not os.path.exists(config_path):
-    raise FileNotFoundError(f"配置文件 {config_path} 未找到！")
-config = configparser.ConfigParser()
-config.read(config_path, encoding="utf-8")  # 注意编码，避免中文乱码
+db_config_ = backtest_platform.config.get_db_config()
+log_config = backtest_platform.config.get_log_config()
 
 logger = setup_logger(logger_name=__name__,
-                      log_level=config.get("logging","level"),
-                      log_dir=config.get("logging","log_dir"),)
+                   log_level=log_config["log_level"],
+                   log_dir=log_config["log_dir"], )
+
 
 
 class BaostockDataCollector:
@@ -83,6 +77,7 @@ class BaostockDataCollector:
 
     def parse_stock_code(self, full_code):
         """解析股票代码，返回(market, code_int)"""
+
         if '.' in full_code:
             market, code_str = full_code.split('.')
             market = market.strip().lower()
@@ -192,7 +187,6 @@ class BaostockDataCollector:
                 frequency=frequency,
                 adjustflag="2"
             )
-
             if rs.error_code != '0':
                 logger.warning(f"股票{code} {frequency}线数据获取失败: {rs.error_msg}")
                 return None
@@ -232,7 +226,7 @@ class BaostockDataCollector:
                 preclose = float(row['preclose']) if 'preclose' in row and row['preclose'] != '' else 0
                 volume = int(float(row['volume'])) if row['volume'] != '' else 0
                 amount = float(row['amount']) if row['amount'] != '' else 0
-                turn = float(row['turn']) if 'turn' in row and row['turn'] != '' else 0
+                turn = float(row['turn']) if 'turn' in row and row['turn'] != '' else 0     # 换手*成交额算出来的是流通市值
                 pctchg = self.clamp(float(row['pctChg']) if 'pctChg' in row and row['pctChg'] != '' else 0)
                 peTTM = self.clamp(float(row['peTTM']) if 'peTTM' in row and row['peTTM'] != '' else 0)
                 pbMRQ = self.clamp(float(row['pbMRQ']) if 'pbMRQ' in row and row['pbMRQ'] != '' else 0)
@@ -321,12 +315,14 @@ class BaostockDataCollector:
             logger.error(f"批量保存分钟线数据异常: {e}")
             return False
 
-    def collect_all_data(self, start_date="2020-01-01", minute_frequencies=['5']):
+    # def collect_all_data(self, start_date="2020-01-01", minute_frequencies=['5']):
+    def collect_all_data(self, start_date="1990-12-19", minute_frequencies=['5']):
         """
         主函数：收集所有数据（全量拉取，无存在性检查）
         """
         # end_date = datetime.now().strftime("%Y-%m-%d")
-        end_date = "2025-11-14"
+        # end_date = "2025-11-14"
+        end_date = "2019-12-31"
         logger.info(f"开始全量数据收集，时间范围: {start_date} 到 {end_date}")
 
         # 1. 登录Baostock
@@ -346,16 +342,17 @@ class BaostockDataCollector:
                 self.save_stock_basic_info(stock_df)
 
                 # 4. 检查数据库中已存在的股票代码
-                logger.info("步骤2: 检查数据库中已存在的股票")
-                existing_stocks_sql = "SELECT DISTINCT code_int FROM stock_daily_data"
-                self.cursor.execute(existing_stocks_sql)
-                existing_stocks = {str(row['code_int']) for row in self.cursor.fetchall()}  # 转换为字符串确保一致比较
-                logger.info(f"数据库中已存在 {len(existing_stocks)} 只股票的K线数据")
+                # logger.info("步骤2: 检查数据库中已存在的股票")
+                # existing_stocks_sql = "SELECT DISTINCT code_int FROM stock_daily_data"
+                # self.cursor.execute(existing_stocks_sql)
+                # existing_stocks = {str(row['code_int']) for row in self.cursor.fetchall()}  # 转换为字符串确保一致比较
+                # logger.info(f"数据库中已存在 {len(existing_stocks)} 只股票的K线数据")
 
                 # 5.筛选需要处理的股票（排除已存在的和特定代码）
                 stocks_to_process = [
                     code for code in stock_df['code']
-                    if code.startswith(('sh.', 'sz.')) and code.split('.')[1] not in existing_stocks  # 提取数字部分检查是否已存在
+                    # if code.startswith(('sh.', 'sz.')) and code.split('.')[1] not in existing_stocks  # 提取数字部分检查是否已存在
+                    if code.startswith(('sh.', 'sz.')) and code.split('.')[1]
                     # if code.startswith(('sh.', 'sz.')) and '000' not in code
                     #    and code.split('.')[1] not in existing_stocks  # 提取数字部分检查是否已存在
                 ]
@@ -373,7 +370,7 @@ class BaostockDataCollector:
                         self.save_daily_data_batch(code, daily_df)
 
                     # 获取分钟线数据（最近90天，避免数据量过大）
-                    minute_start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+                    minute_start_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
                     for freq in minute_frequencies:
                         minute_df = self.get_stock_k_data(code, minute_start_date, end_date, frequency=freq)
                         if minute_df is not None:
@@ -408,11 +405,11 @@ def main():
     """主函数"""
     # 新数据库配置
     db_config = {
-        'host': config.get("database","host"),
-        'port': config.getint("database", "port"),
-        'user': config.get("database","username"),
-        'password': config.get("database","password"),
-        'database': config.get("database","database")  # 修改为新数据库名
+        'host': db_config_["host"],
+        'port': db_config_["port"],
+        'user': db_config_["user"],
+        'password': db_config_["password"],
+        'database': db_config_["database"],
     }
 
     # 创建收集器实例
@@ -420,7 +417,7 @@ def main():
 
     # 执行全量数据收集
     success = collector.collect_all_data(
-        start_date="2020-01-01",  # 从2020年开始拉取
+        start_date="1990-12-19",  # 从2020年开始拉取
         # minute_frequencies=['5', '15', '30']  # 获取多种分钟线数据
         minute_frequencies=['5']  # 获取多种分钟线数据
     )

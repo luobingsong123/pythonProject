@@ -62,10 +62,10 @@ CREATE TABLE `stock_minute_data` (
   `market` varchar(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳',
   `code_int` int(10) unsigned NOT NULL COMMENT '6位数字股票代码',
   `frequency` tinyint(4) NOT NULL COMMENT '频率：5=5分钟, 15=15分钟, 30=30分钟, 60=60分钟',
-  `open` decimal(10,4) NOT NULL COMMENT '开盘价',
-  `high` decimal(10,4) NOT NULL COMMENT '最高价',
-  `low` decimal(10,4) NOT NULL COMMENT '最低价',
-  `close` decimal(10,4) NOT NULL COMMENT '收盘价',
+  `open` decimal(12,6) NOT NULL COMMENT '开盘价',
+  `high` decimal(12,6) NOT NULL COMMENT '最高价',
+  `low` decimal(12,6) NOT NULL COMMENT '最低价',
+  `close` decimal(12,6) NOT NULL COMMENT '收盘价',
   `volume` bigint(20) NOT NULL COMMENT '成交量(股)',
   `amount` decimal(17,4) NOT NULL COMMENT '成交额(元)',
   `adjustflag` tinyint(4) NOT NULL DEFAULT 3 COMMENT '复权状态：1=后复权, 2=前复权, 3=不复权',
@@ -161,3 +161,85 @@ CREATE TABLE IF NOT EXISTS trade_calendar (
     INDEX idx_date (calendar_date),
     INDEX idx_trading (is_trading_day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易日历数据表';
+
+
+-- 创建回测配置表
+CREATE TABLE backtest_config (
+    backtest_id VARCHAR(36) PRIMARY KEY COMMENT '回测唯一标识(UUID)',
+    strategy_name VARCHAR(100) NOT NULL COMMENT '策略名称',
+    stock_code VARCHAR(10) NOT NULL COMMENT '股票代码',
+    market VARCHAR(10) NOT NULL COMMENT '市场代码',
+    start_date DATE NOT NULL COMMENT '回测开始日期',
+    end_date DATE NOT NULL COMMENT '回测结束日期',
+    initial_cash DECIMAL(15,2) NOT NULL DEFAULT 100000.00 COMMENT '初始资金',
+    commission_rate DECIMAL(8,6) NOT NULL DEFAULT 0.001 COMMENT '手续费率',
+    slippage_rate DECIMAL(8,6) NOT NULL DEFAULT 0.001 COMMENT '滑点率',
+    parameters JSON COMMENT '策略参数(JSON格式)',
+    description TEXT COMMENT '回测描述',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    status ENUM('running', 'completed', 'error') DEFAULT 'running' COMMENT '回测状态',
+
+    INDEX idx_strategy_name (strategy_name),
+    INDEX idx_stock_market (stock_code, market),
+    INDEX idx_date_range (start_date, end_date),
+    INDEX idx_created_time (created_time),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='回测配置表';
+
+-- 创建回测绩效表
+CREATE TABLE backtest_performance (
+    performance_id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '绩效记录ID',
+    backtest_id VARCHAR(36) NOT NULL COMMENT '回测唯一标识',
+    final_value DECIMAL(15,2) NOT NULL COMMENT '最终资金',
+    total_return DECIMAL(10,4) NOT NULL COMMENT '总收益率(%)',
+    annual_return DECIMAL(10,4) COMMENT '年化收益率(%)',
+    sharpe_ratio DECIMAL(10,4) COMMENT '夏普比率',
+    max_drawdown DECIMAL(10,4) COMMENT '最大回撤(%)',
+    total_trades INT NOT NULL DEFAULT 0 COMMENT '总交易次数',
+    win_rate DECIMAL(8,4) COMMENT '胜率(%)',
+    profit_factor DECIMAL(10,4) COMMENT '盈亏比',
+    total_commission DECIMAL(15,2) NOT NULL DEFAULT 0 COMMENT '总手续费',
+    avg_trade_return DECIMAL(10,4) COMMENT '平均每笔交易收益',
+    calmar_ratio DECIMAL(10,4) COMMENT '卡尔玛比率',
+    sortino_ratio DECIMAL(10,4) COMMENT '索提诺比率',
+    trade_days INT NOT NULL COMMENT '回测交易日数',
+    benchmark_return DECIMAL(10,4) COMMENT '基准收益率(%)',
+    alpha DECIMAL(10,4) COMMENT '阿尔法',
+    beta DECIMAL(10,4) COMMENT '贝塔',
+    information_ratio DECIMAL(10,4) COMMENT '信息比率',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    UNIQUE KEY uk_backtest_id (backtest_id),
+    INDEX idx_total_return (total_return),
+    INDEX idx_sharpe_ratio (sharpe_ratio),
+    INDEX idx_max_drawdown (max_drawdown),
+    INDEX idx_win_rate (win_rate),
+    FOREIGN KEY (backtest_id) REFERENCES backtest_config(backtest_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='回测绩效表';
+
+-- 创建交易明细表
+CREATE TABLE backtest_trades (
+    trade_id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '交易记录ID',
+    backtest_id VARCHAR(36) NOT NULL COMMENT '回测唯一标识',
+    trade_date DATE NOT NULL COMMENT '交易日期',
+    trade_type ENUM('buy', 'sell') NOT NULL COMMENT '交易类型',
+    price DECIMAL(10,4) NOT NULL COMMENT '成交价格',
+    size INT NOT NULL COMMENT '交易数量',
+    value DECIMAL(15,2) NOT NULL COMMENT '交易金额',
+    commission DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '手续费',
+    slippage DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '滑点成本',
+    pnl DECIMAL(12,4) COMMENT '盈亏金额(卖出时计算)',
+    position_after INT NOT NULL COMMENT '交易后持仓',
+    cash_after DECIMAL(15,2) NOT NULL COMMENT '交易后现金',
+    trade_symbol VARCHAR(50) COMMENT '交易标的',
+    trade_comment VARCHAR(200) COMMENT '交易备注',
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    INDEX idx_backtest_id (backtest_id),
+    INDEX idx_trade_date (trade_date),
+    INDEX idx_trade_type (trade_type),
+    INDEX idx_trade_symbol (trade_symbol),
+    INDEX idx_date_type (trade_date, trade_type),
+    FOREIGN KEY (backtest_id) REFERENCES backtest_config(backtest_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易明细表';

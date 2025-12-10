@@ -3,18 +3,11 @@ import baostock as bs
 import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
-from utils.logger_utils import setup_logger
-import configparser
-import os
+from backtest_platform.utils.logger_utils import setup_logger
+import backtest_platform.config
 
-
-# 配置获取
-config_path = os.path.join("./config.ini")
-if not os.path.exists(config_path):
-    raise FileNotFoundError(f"配置文件 {config_path} 未找到！")
-
-config = configparser.ConfigParser()
-config.read(config_path, encoding="utf-8")
+db_config_ = backtest_platform.config.get_db_config()
+log_config = backtest_platform.config.get_log_config()
 
 
 class TradeCalendarManager:
@@ -33,8 +26,8 @@ class TradeCalendarManager:
 
         # 设置日志
         self.logger = setup_logger(logger_name=__name__,
-                                   log_level=config.get("logging", "level"),
-                                   log_dir=config.get("logging", "log_dir"), )
+                                   log_level=log_config["log_level"],
+                                   log_dir=log_config["log_dir"], )
 
     def connect_database(self):
         """连接数据库"""
@@ -232,11 +225,11 @@ class TradeCalendarManager:
 def main():
     """主函数示例"""
     db_config = {
-        'host': config.get("database", "host"),
-        'port': config.getint("database", "port"),
-        'user': config.get("database", "username"),
-        'password': config.get("database", "password"),
-        'database': config.get("database", "database"),
+        'host': db_config_["host"],
+        'port': db_config_["port"],
+        'user': db_config_["user"],
+        'password': db_config_["password"],
+        'database': db_config_["database"],
         'charset': 'utf8mb4'
     }
 
