@@ -14,8 +14,10 @@ class MarketDataLoader:
     def get_all_stock_codes(self, min_list_date='2025-10-11'):
         """获取全市场股票代码列表"""
         query = f"""
-        SELECT market, code_int, name, list_date
-        FROM stock_basic_info 
+            SELECT market, code_int, name, list_date
+            FROM stock_basic_info
+            WHERE (market = 'sh' AND code_int >= 600000)
+            OR (market = 'sz' AND code_int < 390000);
         """
 
         # if exclude_st:
