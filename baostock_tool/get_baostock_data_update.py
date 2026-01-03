@@ -15,7 +15,6 @@ logger = setup_logger(logger_name=__name__,
                    log_dir=log_config["log_dir"], )
 
 
-
 class BaostockDataCollector:
     def __init__(self, db_config):
         """
@@ -90,13 +89,70 @@ class BaostockDataCollector:
             else:
                 raise ValueError(f"无法解析股票代码: {full_code}")
 
+    def get_trade_dates(self, start_date, end_date):
+        """
+        获取交易日数据
+        """
+        try:
+            rs = bs.query_trade_dates(start_date=start_date, end_date=end_date)
+            if rs.error_code != '0':
+                logger.error(f"获取交易日数据失败: {rs.error_msg}")
+                return None
+
+            data_list = []
+            while (rs.error_code == '0') & rs.next():
+                data_list.append(rs.get_row_data())
+
+            if data_list:
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                df['calendar_date'] = pd.to_datetime(df['calendar_date']).dt.date
+                df['is_trading_day'] = df['is_trading_day'].astype(int)
+                logger.info(f"成功获取 {len(df)} 条交易日数据")
+                return df
+            else:
+                logger.warning("未获取到交易日数据")
+                return None
+
+        except Exception as e:
+            logger.error(f"获取交易日数据异常: {e}")
+            return None
+
+    def save_to_database(self, df):
+        """
+        将交易日数据保存到数据库
+        """
+        if df is None or df.empty:
+            logger.warning("无数据可保存")
+            return False
+
+        try:
+            success_count = 0
+            for _, row in df.iterrows():
+                sql = """
+                REPLACE INTO trade_calendar (calendar_date, is_trading_day)
+                VALUES (%s, %s)
+                """
+                values = (row['calendar_date'], row['is_trading_day'])
+
+                self.cursor.execute(sql, values)
+                success_count += 1
+
+            self.conn.commit()
+            logger.info(f"成功保存 {success_count} 条数据到数据库")
+            return True
+
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"保存数据到数据库失败: {e}")
+            return False
+
     def get_all_stocks(self, query_date=None):
         """
         获取所有股票基本信息
         """
         if query_date is None:
-            # query_date = datetime.now().strftime("%Y-%m-%d")
-            query_date = "2025-11-17"
+            query_date = datetime.now().strftime("%Y-%m-%d")
+            logger.info(f"使用当前日期: {query_date}")
 
         try:
             rs = bs.query_all_stock(day=query_date)
@@ -134,10 +190,6 @@ class BaostockDataCollector:
             for _, row in stock_df.iterrows():
                 full_code = row['code']
                 code_name = row.get('code_name', '')
-
-                # 跳过指数代码
-                if not full_code.startswith(('sh.', 'sz.')) or '000' in full_code:
-                    continue
 
                 try:
                     market, code_int = self.parse_stock_code(full_code)
@@ -314,15 +366,10 @@ class BaostockDataCollector:
             logger.error(f"批量保存分钟线数据异常: {e}")
             return False
 
-    # def collect_all_data(self, start_date="2020-01-01", minute_frequencies=['5']):
-    def collect_all_data(self, start_date="1990-12-19", minute_frequencies=['5']):
+    def collect_all_data(self, minute_frequencies=['5']):
         """
         主函数：收集所有数据（全量拉取，无存在性检查）
         """
-        # end_date = datetime.now().strftime("%Y-%m-%d")
-        # end_date = "2025-11-14"
-        end_date = "2019-12-31"
-        logger.info(f"开始全量数据收集，时间范围: {start_date} 到 {end_date}")
 
         # 1. 登录Baostock
         if not self.login_baostock():
@@ -333,10 +380,42 @@ class BaostockDataCollector:
             self.logout_baostock()
             return False
 
+        sql = """
+        SELECT MAX(DATE) AS latest_date 
+        FROM stock_daily_data 
+        WHERE code_int = 399998
+        """
+        self.cursor.execute(sql)
+        result = self.cursor.fetchone()  # 获取单个结果
+        if result:
+            start_date = result['latest_date'].strftime('%Y-%m-%d')
+        else:
+            start_date = '2025-01-01'
+        now = datetime.now()
+        current_time = now.time()
+        target_time = datetime.strptime("18:30", "%H:%M").time()
+        # 判断当前时间是否在18:30前
+        if current_time < target_time:
+            # 在当前时间前，用前一天
+            end_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            # 在18:30后，用当天
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        logger.info(f"增量数据收集，时间范围: {start_date} 到 {end_date}")
+
+        try:
+            df = self.get_trade_dates(start_date, end_date)
+            if df is None:
+                return False
+            result = self.save_to_database(df)
+            logger.info(f"保存交易日数据结果: {result}")
+        except Exception as e:
+            logger.error(f"保存交易日数据异常: {e}")
+
         try:
             # 3. 获取并保存所有股票基本信息
             logger.info("步骤1: 获取股票基本信息")
-            stock_df = self.get_all_stocks()
+            stock_df = self.get_all_stocks(end_date)
             if stock_df is not None:
                 self.save_stock_basic_info(stock_df)
 
@@ -363,20 +442,15 @@ class BaostockDataCollector:
                 for idx, code in enumerate(stocks_to_process):
                     logger.info(f"处理股票 [{idx + 1}/{total_stocks}]: {code}")
 
-                    # # 获取日线数据（全历史）
-                    # daily_df = self.get_stock_k_data(code, start_date, end_date, frequency='d')
-                    # if daily_df is not None:
-                    #     self.save_daily_data_batch(code, daily_df)
-
-                    # 获取分钟线数据（最近90天，避免数据量过大）
-                    minute_start_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
                     for freq in minute_frequencies:
-                        minute_df = self.get_stock_k_data(code, minute_start_date, end_date, frequency=freq)
-                        if minute_df is not None:
-                            self.save_minute_data_batch(code, minute_df, freq)
-
-                    # # 添加延迟，避免请求过快
-                    # time.sleep(0.3)
+                        if freq != 'd':
+                            minute_df = self.get_stock_k_data(code, start_date, end_date, frequency=freq)
+                            if minute_df is not None:
+                                self.save_minute_data_batch(code, minute_df, freq)
+                        else:
+                            daily_df = self.get_stock_k_data(code, start_date, end_date, frequency=freq)
+                            if daily_df is not None:
+                                self.save_daily_data_batch(code, daily_df)
 
                 logger.info("全量数据收集完成")
                 return True
@@ -413,12 +487,10 @@ def main():
 
     # 创建收集器实例
     collector = BaostockDataCollector(db_config)
-
     # 执行全量数据收集
     success = collector.collect_all_data(
-        start_date="2020-01-01",  # 从2020年开始拉取
-        # minute_frequencies=['5', '15', '30']  # 获取多种分钟线数据
-        minute_frequencies=['5']  # 获取多种分钟线数据
+        # start_date="2020-01-01",  # 从2020年开始拉取
+        minute_frequencies=['d', '5', '30', '60']  # 获取多种分钟线数据
     )
 
     if success:

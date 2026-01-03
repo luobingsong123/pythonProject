@@ -9,6 +9,11 @@ config = configparser.ConfigParser()
 config.read(config_path, encoding="utf-8")
 
 def get_db_config():
+    print(config.get("database", "host"))
+    print(config.get("database", "port"))
+    print(config.get("database", "username"))
+    print(config.get("database", "password"))
+    print(config.get("database", "database"))
     return {
         "host": config.get("database", "host"),
         "port": config.getint("database", "port"),
@@ -30,8 +35,16 @@ def get_web_config():
         "port": config.get("webserver", "port"),
     }
 
+def get_backtrade_date_config():
+    return {
+        "start_date": config.get("backtradedate", "start_date"),
+        "end_date": config.get("backtradedate", "end_date"),
+        "frequency": config.get("backtradedate", "frequency"),
+    }
+
 
 if __name__ == "__main__":
     print(get_db_config())
     print(get_log_config())
     print(get_web_config())
+    print(get_backtrade_date_config())
