@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('TkAgg')  # 或者 'Qt5Agg', 'Agg'
 import baostock as bs
 import pandas as pd
 import numpy as np
@@ -183,8 +185,8 @@ def main():
     plt.grid(True)
 
     plt.tight_layout()
-    plt.show()
-
+    # plt.show()
+    plt.savefig('kline_chart.png', dpi=300, bbox_inches='tight')
     # 显示损失曲线
     plt.figure(figsize=(10, 6))
     plt.plot(history.history['loss'], label='训练损失')
@@ -194,8 +196,8 @@ def main():
     plt.ylabel('损失')
     plt.legend()
     plt.grid(True)
-    plt.show()
-
+    # plt.show()
+    plt.savefig('kline_chart.png', dpi=300, bbox_inches='tight')
     # 显示最后几天的预测结果
     print("\n最后5天的预测结果对比:")
     recent_results = pd.DataFrame({

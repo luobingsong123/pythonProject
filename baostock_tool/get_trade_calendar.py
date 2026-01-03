@@ -3,11 +3,14 @@ import baostock as bs
 import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
-from backtest_platform.utils.logger_utils import setup_logger
-import backtest_platform.config
+from baostock_tool.utils.logger_utils import setup_logger
+from baostock_tool.config import get_db_config, get_log_config
 
-db_config_ = backtest_platform.config.get_db_config()
-log_config = backtest_platform.config.get_log_config()
+db_config_ = get_db_config()
+log_config = get_log_config()
+logger = setup_logger(logger_name=__name__,
+                   log_level=log_config["log_level"],
+                   log_dir=log_config["log_dir"], )
 
 
 class TradeCalendarManager:
@@ -23,21 +26,16 @@ class TradeCalendarManager:
             'database': 'quant_data',
             'charset': 'utf8mb4'
         }
-
-        # 设置日志
-        self.logger = setup_logger(logger_name=__name__,
-                                   log_level=log_config["log_level"],
-                                   log_dir=log_config["log_dir"], )
-
+        
     def connect_database(self):
         """连接数据库"""
         try:
             self.conn = pymysql.connect(**self.db_config)
             self.cursor = self.conn.cursor()
-            self.logger.info("数据库连接成功")
+            logger.info("数据库连接成功")
             return True
         except Exception as e:
-            self.logger.error(f"数据库连接失败: {e}")
+            logger.error(f"数据库连接失败: {e}")
             return False
 
     def disconnect_database(self):
@@ -46,26 +44,26 @@ class TradeCalendarManager:
             self.cursor.close()
         if hasattr(self, 'conn'):
             self.conn.close()
-        self.logger.info("数据库连接已关闭")
+        logger.info("数据库连接已关闭")
 
     def login_baostock(self):
         """登录Baostock系统"""
         try:
             lg = bs.login()
             if lg.error_code == '0':
-                self.logger.info("Baostock登录成功")
+                logger.info("Baostock登录成功")
                 return True
             else:
-                self.logger.error(f"Baostock登录失败: {lg.error_msg}")
+                logger.error(f"Baostock登录失败: {lg.error_msg}")
                 return False
         except Exception as e:
-            self.logger.error(f"Baostock登录异常: {e}")
+            logger.error(f"Baostock登录异常: {e}")
             return False
 
     def logout_baostock(self):
         """登出Baostock系统"""
         bs.logout()
-        self.logger.info("Baostock已登出")
+        logger.info("Baostock已登出")
 
     def get_trade_dates(self, start_date, end_date):
         """
@@ -74,7 +72,7 @@ class TradeCalendarManager:
         try:
             rs = bs.query_trade_dates(start_date=start_date, end_date=end_date)
             if rs.error_code != '0':
-                self.logger.error(f"获取交易日数据失败: {rs.error_msg}")
+                logger.error(f"获取交易日数据失败: {rs.error_msg}")
                 return None
 
             data_list = []
@@ -85,14 +83,14 @@ class TradeCalendarManager:
                 df = pd.DataFrame(data_list, columns=rs.fields)
                 df['calendar_date'] = pd.to_datetime(df['calendar_date']).dt.date
                 df['is_trading_day'] = df['is_trading_day'].astype(int)
-                self.logger.info(f"成功获取 {len(df)} 条交易日数据")
+                logger.info(f"成功获取 {len(df)} 条交易日数据")
                 return df
             else:
-                self.logger.warning("未获取到交易日数据")
+                logger.warning("未获取到交易日数据")
                 return None
 
         except Exception as e:
-            self.logger.error(f"获取交易日数据异常: {e}")
+            logger.error(f"获取交易日数据异常: {e}")
             return None
 
     def save_to_database(self, df):
@@ -100,7 +98,7 @@ class TradeCalendarManager:
         将交易日数据保存到数据库
         """
         if df is None or df.empty:
-            self.logger.warning("无数据可保存")
+            logger.warning("无数据可保存")
             return False
 
         try:
@@ -116,12 +114,12 @@ class TradeCalendarManager:
                 success_count += 1
 
             self.conn.commit()
-            self.logger.info(f"成功保存 {success_count} 条数据到数据库")
+            logger.info(f"成功保存 {success_count} 条数据到数据库")
             return True
 
         except Exception as e:
             self.conn.rollback()
-            self.logger.error(f"保存数据到数据库失败: {e}")
+            logger.error(f"保存数据到数据库失败: {e}")
             return False
 
     def get_latest_trade_date(self):
@@ -135,16 +133,16 @@ class TradeCalendarManager:
             latest_date = result[0] if result[0] else None
 
             if latest_date:
-                self.logger.info(f"数据库中最新的交易日: {latest_date}")
+                logger.info(f"数据库中最新的交易日: {latest_date}")
                 # 返回下一个交易日作为开始日期
                 next_date = latest_date + timedelta(days=1)
                 return next_date.strftime('%Y-%m-%d')
             else:
-                self.logger.info("数据库中无交易日数据，使用默认开始日期")
+                logger.info("数据库中无交易日数据，使用默认开始日期")
                 return None
 
         except Exception as e:
-            self.logger.error(f"获取最新交易日失败: {e}")
+            logger.error(f"获取最新交易日失败: {e}")
             return None
 
     def update_trade_calendar(self, start_date=None, end_date=None):
@@ -170,18 +168,18 @@ class TradeCalendarManager:
 
         self.disconnect_database()  # 先断开，后面会重新连接
 
-        self.logger.info(f"开始更新交易日历数据: {start_date} 至 {end_date}")
+        logger.info(f"开始更新交易日历数据: {start_date} 至 {end_date}")
 
         # 检查日期范围是否有效
         start_dt = datetime.strptime(start_date, '%Y-%m-%d')
         end_dt = datetime.strptime(end_date, '%Y-%m-%d')
 
         if start_dt > end_dt:
-            self.logger.warning("开始日期晚于结束日期，无需更新")
+            logger.warning("开始日期晚于结束日期，无需更新")
             return True
 
         if start_dt == end_dt:
-            self.logger.info("开始日期等于结束日期，检查是否需要更新单日数据")
+            logger.info("开始日期等于结束日期，检查是否需要更新单日数据")
 
         # 重新连接数据库
         if not self.connect_database():
@@ -211,14 +209,14 @@ class TradeCalendarManager:
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=years * 365)).strftime('%Y-%m-%d')
 
-        self.logger.info(f"开始批量更新 {years} 年历史数据")
+        logger.info(f"开始批量更新 {years} 年历史数据")
         return self.update_trade_calendar(start_date, end_date)
 
     def force_update_from_date(self, start_date):
         """
         强制从指定日期开始更新
         """
-        self.logger.info(f"强制从指定日期开始更新: {start_date}")
+        logger.info(f"强制从指定日期开始更新: {start_date}")
         return self.update_trade_calendar(start_date=start_date)
 
 
