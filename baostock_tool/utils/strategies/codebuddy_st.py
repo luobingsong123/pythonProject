@@ -89,9 +89,9 @@ class CodeBuddyStrategy(bt.Strategy):
                         'profit_rate': round((order.executed.pnl / self.buyprice) * 100, 2) if self.buyprice else 0,
                         'hold_days': self.hold_days
                     }
-                    # 将买入和卖出点位一起记录
+                    # 买入记录
                     self.trigger_points.append(self.current_buy_info)
-                    self.trigger_points.append(sell_info)
+                    # self.trigger_points.append(sell_info)
                     self.current_buy_info = None
                 if self.p.printlog:
                     logger.debug(f'卖出执行 - 价格: {order.executed.price:.2f}, '
@@ -104,7 +104,7 @@ class CodeBuddyStrategy(bt.Strategy):
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             if self.p.printlog:
-                logger.warning(f'订单取消/拒绝 - 状态: {order.getstatusname()}')
+                logger.warning(f'订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
 
         self.order = None
 
