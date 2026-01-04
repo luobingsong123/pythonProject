@@ -8,6 +8,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.engine import URL
 import config
 import pymysql
+from utils.logger_utils import setup_logger
+
+log_config = config.get_log_config()
+logger = setup_logger(logger_name=__name__,
+                      log_level=log_config["log_level"],
+                      log_dir=log_config["log_dir"])
 
 # 创建基类
 Base = declarative_base()
@@ -78,13 +84,13 @@ class StrategyTriggerDB:
         try:
             if drop_existing:
                 StrategyTriggerPoints.__table__.drop(self.engine, checkfirst=True)
-                print("已删除旧表")
+                logger.debug("已删除旧表")
 
             StrategyTriggerPoints.__table__.create(self.engine, checkfirst=True)
-            print("策略触发点位表创建成功")
+            logger.debug("策略触发点位表创建成功")
             return True
         except Exception as e:
-            print(f"创建表失败: {str(e)}")
+            logger.debug(f"创建表失败: {str(e)}")
             return False
 
     def insert_trigger_points(self, strategy_name, stock_code, market, trigger_points_json,
@@ -130,7 +136,7 @@ class StrategyTriggerDB:
                 existing.trigger_points_json = trigger_points_json
                 existing.trigger_count = trigger_count
                 session.commit()
-                print(f"更新策略触发点位数据成功: {strategy_name} - {stock_code}")
+                logger.debug(f"更新策略触发点位数据成功: {strategy_name} - {stock_code}")
             else:
                 # 插入新记录
                 new_record = StrategyTriggerPoints(
@@ -144,14 +150,14 @@ class StrategyTriggerDB:
                 )
                 session.add(new_record)
                 session.commit()
-                print(f"插入策略触发点位数据成功: {strategy_name} - {stock_code}")
+                logger.debug(f"插入策略触发点位数据成功: {strategy_name} - {stock_code}")
 
             session.close()
             return True
         except Exception as e:
-            print(f"插入数据失败: {str(e)}")
+            logger.debug(f"插入数据失败: {str(e)}")
             import traceback
-            traceback.print_exc()
+            traceback.logger.debug_exc()
             return False
 
     def query_trigger_points(self, strategy_name=None, stock_code=None, market=None,
@@ -191,7 +197,7 @@ class StrategyTriggerDB:
             session.close()
             return results
         except Exception as e:
-            print(f"查询数据失败: {str(e)}")
+            logger.debug(f"查询数据失败: {str(e)}")
             return []
 
     def get_statistics(self):
@@ -247,7 +253,7 @@ class StrategyTriggerDB:
                 ]
             }
         except Exception as e:
-            print(f"获取统计信息失败: {str(e)}")
+            logger.debug(f"获取统计信息失败: {str(e)}")
             return {}
 
 
@@ -290,8 +296,8 @@ if __name__ == "__main__":
     # 查询数据
     results = db.query_trigger_points(strategy_name="CodeBuddyStrategy")
     for result in results:
-        print(f"策略: {result.strategy_name}, 股票: {result.stock_code}, 触发次数: {result.trigger_count}")
+        logger.debug(f"策略: {result.strategy_name}, 股票: {result.stock_code}, 触发次数: {result.trigger_count}")
 
     # 获取统计信息
     stats = db.get_statistics()
-    print(f"\n统计信息: {stats}")
+    logger.debug(f"\n统计信息: {stats}")
