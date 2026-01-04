@@ -15,6 +15,8 @@ class CodeBuddyStrategy(bt.Strategy):
     """
     params = (
         ('period', 20),          # 查找最低成交量的周期
+        ('profit_threshold', 5.0),    # 总浮盈阈值（百分比）
+        ('drawdown_threshold', 3.0), # 总回撤阈值（百分比）
         ('printlog', True),
     )
 
@@ -129,10 +131,26 @@ class CodeBuddyStrategy(bt.Strategy):
         # 如果有持仓，检查是否需要卖出
         if self.position:
             self.hold_days += 1
-            # 持有第2天卖出（买入后的下一个交易日）
-            if self.hold_days >= 3:
-                # 满仓卖出：卖出全部持仓
-                self.order = self.sell(size=self.position.size)
+            # 计算当前持仓的盈亏情况
+            current_price = self.dataclose[0]
+            if self.buyprice > 0:
+                # 计算总浮盈百分比
+                profit_rate = ((current_price - self.buyprice) / self.buyprice) * 100
+
+                # 检查卖出条件
+                # 条件1：总浮盈大于阈值
+                # 条件2：总回撤大于阈值（负收益）
+                sell_condition_met = (profit_rate >= self.p.profit_threshold) or (profit_rate <= -self.p.drawdown_threshold)
+
+                if sell_condition_met:
+                    # 满仓卖出：卖出全部持仓
+                    if self.p.printlog:
+                        logger.info(f'触发卖出信号 - 日期: {self.datas[0].datetime.date()}, '
+                                  f'当前价格: {current_price:.2f}, '
+                                  f'买入价格: {self.buyprice:.2f}, '
+                                  f'浮盈: {profit_rate:.2f}%, '
+                                  f'持有天数: {self.hold_days}')
+                    self.order = self.sell(size=self.position.size)
             return
 
         # 无持仓时，检查买入条件
