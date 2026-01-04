@@ -104,7 +104,7 @@ class CodeBuddyStrategy(bt.Strategy):
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             if self.p.printlog:
-                logger.warning(f'订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
+                logger.warning(f'证券代码: {self.datas[0]}  订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
 
         self.order = None
 
