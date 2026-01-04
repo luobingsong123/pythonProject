@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K线图与指标展示系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部搜索栏 -->
+        <header class="header">
+            <div class="logo">
+                <h1>📈 量化策略分析平台</h1>
+            </div>
+            <div class="search-container">
+                <input
+                    type="text"
+                    id="search-input"
+                    placeholder="输入策略名称进行搜索..."
+                    autocomplete="off"
+                >
+                <button id="search-button">
+                    <span>搜索</span>
+                </button>
+            </div>
+            <div class="user-info">
+                <span id="current-time"></span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- 左侧策略列表 -->
+            <aside class="sidebar left-sidebar">
+                <div class="sidebar-header">
+                    <h2>策略列表</h2>
+                    <div class="strategy-count">
+                        <span id="strategy-count">0</span> 个策略
+                    </div>
+                </div>
+                <div class="strategies-list" id="strategies-list">
+                    <!-- 策略列表将通过JavaScript动态加载 -->
+                    <div class="loading">加载中...</div>
+                </div>
+                <div class="sidebar-footer">
+                    <button id="refresh-strategies" class="btn-secondary">
+                        🔄 刷新列表
+                    </button>
+                </div>
+            </aside>
+
+            <!-- 中间K线图区域 -->
+            <main class="chart-container">
+                <div class="chart-header">
+                    <h3 id="chart-title">K线图与成交量</h3>
+                    <div class="chart-controls">
+                        <div class="timeframe-selector">
+                            <span>时间周期：</span>
+                            <select id="timeframe-select">
+                                <option value="30">30天</option>
+                                <option value="60" selected>60天</option>
+                                <option value="100">100天</option>
+                                <option value="200">200天</option>
+                            </select>
+                        </div>
+                        <button id="fullscreen-btn" class="btn-secondary">全屏</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <div id="kline-chart" class="kline-chart"></div>
+                </div>
+                <div class="chart-footer">
+                    <div class="data-info">
+                        <span>数据范围：<span id="data-range"></span></span>
+                        <span>数据点数：<span id="data-points">0</span></span>
+                    </div>
+                    <div class="indicator-status">
+                        <span>当前指标：<span id="active-indicators">无</span></span>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 右侧技术指标选择 -->
+            <aside class="sidebar right-sidebar">
+                <div class="sidebar-header">
+                    <h2>技术指标</h2>
+                    <button id="clear-indicators" class="btn-secondary">清空</button>
+                </div>
+                <div class="indicators-list" id="indicators-list">
+                    <!-- 指标列表将通过JavaScript动态加载 -->
+                    <div class="loading">加载中...</div>
+                </div>
+                <div class="sidebar-footer">
+                    <div class="indicator-info" id="indicator-info">
+                        选择一个指标查看详情
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- 页脚 -->
+        <footer class="footer">
+            <p>K线图与指标展示系统 &copy; 2024 | 数据仅供参考，不构成投资建议</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>
