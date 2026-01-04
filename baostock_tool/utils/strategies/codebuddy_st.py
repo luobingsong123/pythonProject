@@ -130,8 +130,9 @@ class CodeBuddyStrategy(bt.Strategy):
         if self.position:
             self.hold_days += 1
             # 持有第2天卖出（买入后的下一个交易日）
-            if self.hold_days >= 2:
-                self.order = self.sell()
+            if self.hold_days >= 3:
+                # 满仓卖出：卖出全部持仓
+                self.order = self.sell(size=self.position.size)
             return
 
         # 无持仓时，检查买入条件
@@ -151,11 +152,20 @@ class CodeBuddyStrategy(bt.Strategy):
             # 记录触发时的成交量
             self.last_trigger_volume = yesterday_volume
             # 注意：next()在当前bar执行，下单会在下一个bar执行
-            # 但我们需要在"下一个交易日"买入，所以这里使用limitorder
+            # 但我们需要在"下一个交易日"买入，所以使用limitorder
             # 由于策略描述是"下一交易日以开盘价买入"，使用marketorder即可
             # 因为next()运行时是当前bar收盘后，order会在下一天开盘执行
+            # 满仓买入：使用全部可用资金
             if self.p.printlog:
                 logger.info(f'触发买入信号 - 当前日期: {self.datas[0].datetime.date()}, '
                           f'昨日成交量: {yesterday_volume}, '
                           f'20日最低成交量: {min_volume}')
-            self.order = self.buy()
+            # 计算最大可买数量，使用全部可用资金
+            cash = self.broker.getvalue()
+            # 获取当前价格，使用昨天的收盘价作为参考
+            price = self.dataclose[-1]
+            # 计算可买数量（考虑手续费，预留10%作为手续费缓冲）
+            if price > 0:
+                buy_size = int((cash * 0.95) / price)  # 95%仓位，预留5%手续费缓冲
+                if buy_size > 0:
+                    self.order = self.buy(size=buy_size)
