@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>策略触发点位K线图展示</title>
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+        #kline-chart {
+            width: 100%;
+            height: 600px;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+        .trigger-btn {
+            transition: all 0.3s;
+        }
+        .trigger-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        .trigger-buy {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+        .trigger-sell {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- 标题 -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">策略触发点位K线图展示</h1>
+            <p class="text-gray-600">选择策略和股票，查看触发点位前后的K线走势</p>
+        </div>
+
+        <!-- 策略和股票选择 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            <div class="card p-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">选择策略</label>
+                <select id="strategy-select" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="">请选择策略...</option>
+                </select>
+            </div>
+            <div class="card p-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">选择股票</label>
+                <select id="stock-select" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" disabled>
+                    <option value="">请先选择策略...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 触发点位列表 -->
+        <div class="card p-6 mb-8" id="trigger-points-section" style="display: none;">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">触发点位列表</h2>
+            <div id="trigger-points-container" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                <!-- 触发点位按钮将在这里动态生成 -->
+            </div>
+        </div>
+
+        <!-- 触发点位信息 -->
+        <div class="card p-6 mb-8" id="trigger-info-section" style="display: none;">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">触发点位详情</h2>
+            <div id="trigger-info-content" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <!-- 触发点位详情将在这里显示 -->
+            </div>
+        </div>
+
+        <!-- K线图 -->
+        <div class="card p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-gray-800">K线图</h2>
+                <div class="flex gap-2">
+                    <span class="text-sm text-gray-600">显示范围: </span>
+                    <select id="bars-range" class="px-3 py-1 border border-gray-300 rounded text-sm">
+                        <option value="30">前后30天</option>
+                        <option value="50" selected>前后50天</option>
+                        <option value="100">前后100天</option>
+                    </select>
+                </div>
+            </div>
+            <div id="kline-chart"></div>
+            <div id="loading" class="loading" style="display: none;">
+                <div class="text-gray-500">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let currentStrategy = null;
+        let currentStock = null;
+        let currentTriggerPoints = [];
+        let selectedTriggerIndex = null;
+        let chart = null;
+
+        // 初始化ECharts
+        function initChart() {
+            chart = echarts.init(document.getElementById('kline-chart'));
+            window.addEventListener('resize', function() {
+                chart.resize();
+            });
+        }
+
+        // 加载策略列表
+        async function loadStrategies() {
+            try {
+                const response = await fetch('/api/strategies');
+                const result = await response.json();
+
+                if (result.success) {
+                    const select = document.getElementById('strategy-select');
+                    select.innerHTML = '<option value="">请选择策略...</option>';
+                    result.data.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.strategy_name;
+                        option.textContent = `${item.strategy_name} (${item.stock_count}只股票)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('加载策略列表失败:', error);
+            }
+        }
+
+        // 加载股票列表
+        async function loadStocks(strategyName) {
+            try {
+                const response = await fetch(`/api/stocks?strategy_name=${strategyName}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    const select = document.getElementById('stock-select');
+                    select.innerHTML = '<option value="">请选择股票...</option>';
+                    result.data.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = `${item.stock_code}|${item.market}`;
+                        option.textContent = `${item.stock_code} (${item.market.toUpperCase()}) - ${item.trigger_count}次触发`;
+                        option.dataset.stockCode = item.stock_code;
+                        option.dataset.market = item.market;
+                        select.appendChild(option);
+                    });
+                    select.disabled = false;
+                }
+            } catch (error) {
+                console.error('加载股票列表失败:', error);
+            }
+        }
+
+        // 加载触发点位
+        async function loadTriggerPoints(stockCode, market) {
+            try {
+                const response = await fetch(`/api/trigger_points?strategy_name=${currentStrategy}&stock_code=${stockCode}&market=${market}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    currentTriggerPoints = result.data.trigger_points;
+                    displayTriggerPoints(currentTriggerPoints);
+                    document.getElementById('trigger-points-section').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('加载触发点位失败:', error);
+            }
+        }
+
+        // 显示触发点位
+        function displayTriggerPoints(triggerPoints) {
+            const container = document.getElementById('trigger-points-container');
+            container.innerHTML = '';
+
+            triggerPoints.forEach((point, index) => {
+                const btn = document.createElement('button');
+                btn.className = `trigger-btn text-white px-4 py-3 rounded-lg text-sm font-medium ${point.trigger_type === 'buy' ? 'trigger-buy' : 'trigger-sell'}`;
+                btn.innerHTML = `
+                    <div class="font-bold">${point.trigger_type === 'buy' ? '买入' : '卖出'}</div>
+                    <div class="text-xs mt-1">${point.date}</div>
+                `;
+                btn.onclick = () => loadKlineData(index);
+                container.appendChild(btn);
+            });
+        }
+
+        // 加载K线数据
+        async function loadKlineData(triggerIndex) {
+            selectedTriggerIndex = triggerIndex;
+            const triggerPoint = currentTriggerPoints[triggerIndex];
+            const stockInfo = document.getElementById('stock-select').value.split('|');
+            const stockCode = stockInfo[0];
+            const market = stockInfo[1];
+            const barsRange = document.getElementById('bars-range').value;
+
+            document.getElementById('loading').style.display = 'flex';
+            document.getElementById('kline-chart').style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/kline_data?strategy_name=${currentStrategy}&stock_code=${stockCode}&market=${market}&trigger_index=${triggerIndex}&bars_before=${barsRange}&bars_after=${barsRange}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    displayTriggerInfo(result.data.trigger_info);
+                    drawKlineChart(result.data);
+                }
+            } catch (error) {
+                console.error('加载K线数据失败:', error);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('kline-chart').style.display = 'block';
+            }
+        }
+
+        // 显示触发点位信息
+        function displayTriggerInfo(triggerInfo) {
+            const container = document.getElementById('trigger-info-content');
+            const typeText = triggerInfo.trigger_type === 'buy' ? '买入' : '卖出';
+            const typeColor = triggerInfo.trigger_type === 'buy' ? 'text-red-600' : 'text-green-600';
+
+            container.innerHTML = `
+                <div class="bg-gray-50 p-3 rounded">
+                    <div class="text-sm text-gray-500">交易类型</div>
+                    <div class="font-bold ${typeColor}">${typeText}</div>
+                </div>
+                <div class="bg-gray-50 p-3 rounded">
+                    <div class="text-sm text-gray-500">触发日期</div>
+                    <div class="font-semibold">${triggerInfo.date}</div>
+                </div>
+                <div class="bg-gray-50 p-3 rounded">
+                    <div class="text-sm text-gray-500">价格</div>
+                    <div class="font-semibold">${triggerInfo.price?.toFixed(2) || '-'}</div>
+                </div>
+                <div class="bg-gray-50 p-3 rounded">
+                    <div class="text-sm text-gray-500">数量</div>
+                    <div class="font-semibold">${triggerInfo.volume?.toLocaleString() || '-'}</div>
+                </div>
+            `;
+
+            if (triggerInfo.profit !== undefined) {
+                const profitClass = triggerInfo.profit >= 0 ? 'text-red-600' : 'text-green-600';
+                container.innerHTML += `
+                    <div class="bg-gray-50 p-3 rounded">
+                        <div class="text-sm text-gray-500">利润</div>
+                        <div class="font-semibold ${profitClass}">${triggerInfo.profit?.toFixed(2)}</div>
+                    </div>
+                `;
+            }
+            if (triggerInfo.profit_rate !== undefined) {
+                const profitClass = triggerInfo.profit_rate >= 0 ? 'text-red-600' : 'text-green-600';
+                container.innerHTML += `
+                    <div class="bg-gray-50 p-3 rounded">
+                        <div class="text-sm text-gray-500">收益率</div>
+                        <div class="font-semibold ${profitClass}">${triggerInfo.profit_rate}%</div>
+                    </div>
+                `;
+            }
+            if (triggerInfo.hold_days !== undefined) {
+                container.innerHTML += `
+                    <div class="bg-gray-50 p-3 rounded">
+                        <div class="text-sm text-gray-500">持有天数</div>
+                        <div class="font-semibold">${triggerInfo.hold_days}天</div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('trigger-info-section').style.display = 'block';
+        }
+
+        // 绘制K线图
+        function drawKlineChart(data) {
+            const klineData = data.kline_data;
+            const triggerIndex = data.trigger_index;
+            const triggerPrice = data.trigger_price;
+            const triggerType = data.trigger_type;
+
+            // 准备K线数据
+            const dates = klineData.map(item => item.date);
+            const values = klineData.map(item => [item.open, item.close, item.low, item.high]);
+            const volumes = klineData.map(item => item.volume);
+
+            // 计算MA5, MA10, MA20, MA30
+            function calculateMA(dayCount) {
+                var result = [];
+                for (var i = 0, len = klineData.length; i < len; i++) {
+                    if (i < dayCount) {
+                        result.push('-');
+                        continue;
+                    }
+                    var sum = 0;
+                    for (var j = 0; j < dayCount; j++) {
+                        sum += klineData[i - j].close;
+                    }
+                    result.push((sum / dayCount).toFixed(2));
+                }
+                return result;
+            }
+
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    },
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#ccc',
+                    borderWidth: 1,
+                    textStyle: {
+                        color: '#333'
+                    },
+                    formatter: function(params) {
+                        let result = params[0].axisValue + '<br/>';
+                        params.forEach(param => {
+                            if (param.seriesName === 'K线') {
+                                result += `开盘: ${param.data[1]}<br/>`;
+                                result += `收盘: ${param.data[2]}<br/>`;
+                                result += `最低: ${param.data[3]}<br/>`;
+                                result += `最高: ${param.data[4]}<br/>`;
+                            } else if (param.seriesName === '成交量') {
+                                result += `成交量: ${(param.data / 10000).toFixed(2)}万<br/>`;
+                            } else {
+                                result += `${param.seriesName}: ${param.data}<br/>`;
+                            }
+                        });
+                        return result;
+                    }
+                },
+                legend: {
+                    data: ['K线', 'MA5', 'MA10', 'MA20', 'MA30', '成交量', '触发价位'],
+                    top: 10
+                },
+                grid: [
+                    {
+                        left: '10%',
+                        right: '8%',
+                        height: '50%'
+                    },
+                    {
+                        left: '10%',
+                        right: '8%',
+                        top: '63%',
+                        height: '16%'
+                    }
+                ],
+                xAxis: [
+                    {
+                        type: 'category',
+                        data: dates,
+                        scale: true,
+                        boundaryGap: false,
+                        axisLine: { onZero: false },
+                        splitLine: { show: false },
+                        min: 'dataMin',
+                        max: 'dataMax'
+                    },
+                    {
+                        type: 'category',
+                        gridIndex: 1,
+                        data: dates,
+                        scale: true,
+                        boundaryGap: false,
+                        axisLine: { onZero: false },
+                        axisTick: { show: false },
+                        splitLine: { show: false },
+                        axisLabel: { show: false },
+                        min: 'dataMin',
+                        max: 'dataMax'
+                    }
+                ],
+                yAxis: [
+                    {
+                        scale: true,
+                        splitArea: {
+                            show: true
+                        }
+                    },
+                    {
+                        scale: true,
+                        gridIndex: 1,
+                        splitNumber: 2,
+                        axisLabel: { show: false },
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        splitLine: { show: false }
+                    }
+                ],
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        xAxisIndex: [0, 1],
+                        start: 0,
+                        end: 100
+                    },
+                    {
+                        show: true,
+                        xAxisIndex: [0, 1],
+                        type: 'slider',
+                        top: '85%',
+                        start: 0,
+                        end: 100
+                    }
+                ],
+                series: [
+                    {
+                        name: 'K线',
+                        type: 'candlestick',
+                        data: values,
+                        itemStyle: {
+                            color: '#ef4444',
+                            color0: '#22c55e',
+                            borderColor: '#ef4444',
+                            borderColor0: '#22c55e'
+                        },
+                        markPoint: {
+                            data: [{
+                                name: '触发点位',
+                                coord: [triggerIndex, triggerType === 'buy' ? triggerPrice * 1.02 : triggerPrice * 0.98],
+                                value: triggerType === 'buy' ? '买入' : '卖出',
+                                itemStyle: {
+                                    color: triggerType === 'buy' ? '#ef4444' : '#22c55e'
+                                }
+                            }],
+                            symbol: 'pin',
+                            symbolSize: 50,
+                            label: {
+                                show: true,
+                                fontSize: 12,
+                                fontWeight: 'bold'
+                            }
+                        },
+                        markLine: {
+                            silent: true,
+                            data: [{
+                                yAxis: triggerPrice,
+                                lineStyle: {
+                                    color: triggerType === 'buy' ? '#ef4444' : '#22c55e',
+                                    type: 'dashed',
+                                    width: 2
+                                },
+                                label: {
+                                    formatter: `触发价: ${triggerPrice.toFixed(2)}`
+                                }
+                            }]
+                        }
+                    },
+                    {
+                        name: 'MA5',
+                        type: 'line',
+                        data: calculateMA(5),
+                        smooth: true,
+                        lineStyle: {
+                            opacity: 0.5
+                        }
+                    },
+                    {
+                        name: 'MA10',
+                        type: 'line',
+                        data: calculateMA(10),
+                        smooth: true,
+                        lineStyle: {
+                            opacity: 0.5
+                        }
+                    },
+                    {
+                        name: 'MA20',
+                        type: 'line',
+                        data: calculateMA(20),
+                        smooth: true,
+                        lineStyle: {
+                            opacity: 0.5
+                        }
+                    },
+                    {
+                        name: 'MA30',
+                        type: 'line',
+                        data: calculateMA(30),
+                        smooth: true,
+                        lineStyle: {
+                            opacity: 0.5
+                        }
+                    },
+                    {
+                        name: '成交量',
+                        type: 'bar',
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: volumes,
+                        itemStyle: {
+                            color: function(params) {
+                                const colorList = ['#ef4444', '#22c55e'];
+                                const i = klineData[params.dataIndex].close >= klineData[params.dataIndex].open ? 0 : 1;
+                                return colorList[i];
+                            }
+                        }
+                    }
+                ]
+            };
+
+            chart.setOption(option, true);
+        }
+
+        // 事件监听
+        document.getElementById('strategy-select').addEventListener('change', function(e) {
+            currentStrategy = e.target.value;
+            const stockSelect = document.getElementById('stock-select');
+            stockSelect.disabled = true;
+            stockSelect.innerHTML = '<option value="">请选择股票...</option>';
+            document.getElementById('trigger-points-section').style.display = 'none';
+            document.getElementById('trigger-info-section').style.display = 'none';
+
+            if (currentStrategy) {
+                loadStocks(currentStrategy);
+            }
+        });
+
+        document.getElementById('stock-select').addEventListener('change', function(e) {
+            const selectedOption = e.target.options[e.target.selectedIndex];
+            currentStock = {
+                code: selectedOption.dataset.stockCode,
+                market: selectedOption.dataset.market
+            };
+
+            if (currentStock.code && currentStrategy) {
+                loadTriggerPoints(currentStock.code, currentStock.market);
+            }
+        });
+
+        document.getElementById('bars-range').addEventListener('change', function() {
+            if (selectedTriggerIndex !== null) {
+                loadKlineData(selectedTriggerIndex);
+            }
+        });
+
+        // 初始化
+        window.onload = function() {
+            initChart();
+            loadStrategies();
+        };
+    </script>
+</body>
+</html>
