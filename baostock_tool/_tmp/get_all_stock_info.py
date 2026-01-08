@@ -9,7 +9,7 @@ print('login respond error_code:'+lg.error_code)
 print('login respond  error_msg:'+lg.error_msg)
 
 #### 获取证券信息 ####
-rs = bs.query_all_stock(day="2017-06-30")
+rs = bs.query_all_stock(day="2025-12-31")
 print('query_all_stock respond error_code:'+rs.error_code)
 print('query_all_stock respond  error_msg:'+rs.error_msg)
 

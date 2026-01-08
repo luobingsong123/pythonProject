@@ -12,7 +12,7 @@ print('login respond  error_msg:'+lg.error_msg)
 rs = bs.query_history_k_data_plus("sh.600000",
     # fields="date,code,open,high,low,close,preclose,volume,amount,adjustflag,turn,tradestatus,pctChg,peTTM,pbMRQ,psTTM,pcfNcfTTM,isST",
     "date,time,code,open,high,low,close,volume,amount,adjustflag",
-    start_date='2025-11-14', end_date='2025-12-24',
+    start_date='2025-11-14', end_date='2026-01-01',
     frequency="5", adjustflag="3") #frequency="d"取日k线，adjustflag="3"默认不复权
 print('query_history_k_data_plus respond error_code:'+rs.error_code)
 print('query_history_k_data_plus respond  error_msg:'+rs.error_msg)
