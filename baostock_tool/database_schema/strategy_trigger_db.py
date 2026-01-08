@@ -6,9 +6,9 @@
 from sqlalchemy import create_engine, text, Column, BigInteger, String, Enum, Date, Integer, JSON, TIMESTAMP, Index, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.engine import URL
-import config
+from baostock_tool import config
 import pymysql
-from utils.logger_utils import setup_logger
+from baostock_tool.utils.logger_utils import setup_logger
 
 log_config = config.get_log_config()
 logger = setup_logger(logger_name=__name__,
@@ -20,7 +20,10 @@ Base = declarative_base()
 
 
 class StrategyTriggerPoints(Base):
-    """策略触发点位表"""
+    """策略触发点位表
+    该模型类既可以用于查询也可以用于写入，它是一个完整的数据库模型定义，支持CRUD（创建、读取、更新、删除）所有操作
+    """
+
     __tablename__ = 'strategy_trigger_points'
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
