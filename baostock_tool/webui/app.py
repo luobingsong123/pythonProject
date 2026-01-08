@@ -1,297 +1,189 @@
 """
-WebUI Flask应用
-用于展示策略触发点位K线图
+策略触发点位可视化Web应用
+提供策略、证券代码、回测时段、触发点位的层级查询界面
 """
 
 from flask import Flask, render_template, jsonify, request
-from database_schema.strategy_trigger_db import StrategyTriggerDB
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL
-import pandas as pd
-import config
-import json
-from utils.logger_utils import setup_logger
+import sys
+import os
 
-log_config = config.get_log_config()
-logger = setup_logger(logger_name=__name__,
-                      log_level=log_config["log_level"],
-                      log_dir=log_config["log_dir"])
+# 添加父目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-app = Flask(__name__,
-            template_folder='templates',
-            static_folder='static')
+from baostock_tool.database_schema.strategy_trigger_db import StrategyTriggerDB
+from baostock_tool.utils.trigger_points_reader import TriggerPointsReader
 
-# 数据库连接
-db_config_ = config.get_db_config()
-db_url = URL.create(
-    drivername="mysql+pymysql",
-    username=db_config_["user"],
-    password=db_config_["password"],
-    host=db_config_["host"],
-    port=db_config_["port"],
-    database=db_config_["database"]
-)
-engine = create_engine(db_url)
+app = Flask(__name__)
 
-# 初始化策略触发点位数据库
-strategy_db = StrategyTriggerDB()
+# 初始化数据库管理器和数据读取器
+db_manager = StrategyTriggerDB()
+reader = TriggerPointsReader()
 
 
 @app.route('/')
 def index():
-    """首页"""
+    """主页面"""
     return render_template('index.html')
 
 
 @app.route('/api/strategies')
 def get_strategies():
-    """获取所有策略名称"""
+    """获取策略名称列表"""
     try:
-        from sqlalchemy.orm import sessionmaker
-        from sqlalchemy import func
-        Session = sessionmaker(bind=strategy_db.engine)
-        session = Session()
-
-        strategies = session.query(
-            StrategyTriggerPoints.strategy_name,
-            func.count(StrategyTriggerPoints.id).label('stock_count')
-        ).group_by(StrategyTriggerPoints.strategy_name).all()
-
-        result = [{'strategy_name': s.strategy_name, 'stock_count': s.stock_count} for s in strategies]
-        session.close()
+        # 查询所有策略名称
+        results = db_manager.query_trigger_points()
+        strategies = list(set([r.strategy_name for r in results if r.strategy_name]))
+        strategies.sort()
 
         return jsonify({
             'success': True,
-            'data': result
+            'data': strategies
         })
     except Exception as e:
-        logger.error(f"获取策略列表失败: {str(e)}")
         return jsonify({
             'success': False,
-            'message': str(e)
-        }), 500
+            'error': str(e)
+        })
 
 
 @app.route('/api/stocks')
 def get_stocks():
-    """获取指定策略的股票列表"""
+    """
+    获取指定策略的证券代码列表
+    参数:
+        - strategy: 策略名称（可选）
+    """
     try:
-        strategy_name = request.args.get('strategy_name')
-        if not strategy_name:
-            return jsonify({
-                'success': False,
-                'message': 'strategy_name参数缺失'
-            }), 400
+        strategy_name = request.args.get('strategy', '')
 
-        results = strategy_db.query_trigger_points(strategy_name=strategy_name)
+        if strategy_name:
+            # 查询指定策略的证券代码
+            results = db_manager.query_trigger_points(strategy_name=strategy_name)
+            stocks = list(set([f"{r.market}.{r.stock_code}" for r in results]))
+        else:
+            # 查询所有证券代码
+            results = db_manager.query_trigger_points()
+            stocks = list(set([f"{r.market}.{r.stock_code}" for r in results]))
 
-        stocks = []
-        for result in results:
-            stocks.append({
-                'stock_code': result.stock_code,
-                'market': result.market,
-                'trigger_count': result.trigger_count,
-                'backtest_start_date': str(result.backtest_start_date),
-                'backtest_end_date': str(result.backtest_end_date)
-            })
+        stocks.sort()
 
         return jsonify({
             'success': True,
             'data': stocks
         })
     except Exception as e:
-        logger.error(f"获取股票列表失败: {str(e)}")
         return jsonify({
             'success': False,
-            'message': str(e)
-        }), 500
+            'error': str(e)
+        })
+
+
+@app.route('/api/backtest_periods')
+def get_backtest_periods():
+    """
+    获取指定策略和证券代码的回测时段列表
+    参数:
+        - strategy: 策略名称
+        - stock_code: 证券代码
+    """
+    try:
+        strategy_name = request.args.get('strategy', '')
+        stock_code = request.args.get('stock_code', '')
+
+        if not strategy_name:
+            return jsonify({
+                'success': False,
+                'error': '策略名称不能为空'
+            })
+
+        # 解析证券代码（去除市场前缀）
+        market = 'sh'
+        code = stock_code
+        if '.' in stock_code:
+            parts = stock_code.split('.')
+            market = parts[0]
+            code = parts[1]
+
+        # 查询数据库获取回测时段
+        results = db_manager.query_trigger_points(
+            strategy_name=strategy_name,
+            stock_code=code,
+            market=market
+        )
+
+        periods = []
+        for r in results:
+            start_date = r.backtest_start_date.strftime('%Y-%m-%d')
+            end_date = r.backtest_end_date.strftime('%Y-%m-%d')
+            period_str = f"{start_date}至{end_date}"
+            if period_str not in periods:
+                periods.append(period_str)
+
+        periods.sort()
+
+        return jsonify({
+            'success': True,
+            'data': periods
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
 
 
 @app.route('/api/trigger_points')
 def get_trigger_points():
-    """获取指定股票的触发点位"""
+    """
+    获取指定策略、证券代码、回测时段的触发点位列表
+    参数:
+        - strategy: 策略名称
+        - stock_code: 证券代码
+        - backtest_period: 回测时段
+    """
     try:
-        strategy_name = request.args.get('strategy_name')
-        stock_code = request.args.get('stock_code')
-        market = request.args.get('market')
+        strategy_name = request.args.get('strategy', '')
+        stock_code = request.args.get('stock_code', '')
+        backtest_period = request.args.get('backtest_period', '')
 
-        if not all([strategy_name, stock_code, market]):
+        if not strategy_name or not stock_code or not backtest_period:
             return jsonify({
                 'success': False,
-                'message': '缺少必要参数'
-            }), 400
-
-        results = strategy_db.query_trigger_points(
-            strategy_name=strategy_name,
-            stock_code=stock_code,
-            market=market
-        )
-
-        if not results:
-            return jsonify({
-                'success': False,
-                'message': '未找到触发点位数据'
-            }), 404
-
-        result = results[0]
-
-        return jsonify({
-            'success': True,
-            'data': {
-                'strategy_name': result.strategy_name,
-                'stock_code': result.stock_code,
-                'market': result.market,
-                'backtest_start_date': str(result.backtest_start_date),
-                'backtest_end_date': str(result.backtest_end_date),
-                'trigger_count': result.trigger_count,
-                'trigger_points': result.trigger_points_json
-            }
-        })
-    except Exception as e:
-        logger.error(f"获取触发点位失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
-
-
-@app.route('/api/kline_data')
-def get_kline_data():
-    """获取K线数据（触发点位前后50个交易日）"""
-    try:
-        strategy_name = request.args.get('strategy_name')
-        stock_code = request.args.get('stock_code')
-        market = request.args.get('market')
-        trigger_index = request.args.get('trigger_index', type=int)
-        bars_before = request.args.get('bars_before', 50, type=int)
-        bars_after = request.args.get('bars_after', 50, type=int)
-
-        if not all([strategy_name, stock_code, market, trigger_index is not None]):
-            return jsonify({
-                'success': False,
-                'message': '缺少必要参数'
-            }), 400
-
-        # 获取触发点位数据
-        results = strategy_db.query_trigger_points(
-            strategy_name=strategy_name,
-            stock_code=stock_code,
-            market=market
-        )
-
-        if not results or len(results[0].trigger_points_json) <= trigger_index:
-            return jsonify({
-                'success': False,
-                'message': '触发点位索引无效'
-            }), 400
-
-        trigger_point = results[0].trigger_points_json[trigger_index]
-        trigger_date = pd.to_datetime(trigger_point['date'])
-
-        # 计算需要的日期范围
-        # 前后各50个交易日，总共100天，考虑到节假日可能更多，取120天
-        start_date = trigger_date - pd.Timedelta(days=120)
-        end_date = trigger_date + pd.Timedelta(days=120)
-
-        # 从数据库获取K线数据
-        query = f"""
-        SELECT date, open, high, low, close, volume, amount
-        FROM stock_daily_data
-        WHERE market = '{market}'
-          AND code_int = {stock_code}
-          AND frequency = 'd'
-          AND date >= '{start_date.strftime('%Y-%m-%d')}'
-          AND date <= '{end_date.strftime('%Y-%m-%d')}'
-        ORDER BY date
-        """
-
-        df = pd.read_sql(query, engine)
-        if df.empty:
-            return jsonify({
-                'success': False,
-                'message': '未找到K线数据'
-            }), 404
-
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
-
-        # 找到触发点位的索引
-        try:
-            trigger_idx = df.index.get_loc(trigger_date)
-        except KeyError:
-            # 如果触发日期不是交易日，找到最近的交易日
-            trigger_idx = df.index.get_indexer([trigger_date], method='nearest')[0]
-            trigger_date = df.index[trigger_idx]
-
-        # 提取前后N个交易日
-        start_idx = max(0, trigger_idx - bars_before)
-        end_idx = min(len(df), trigger_idx + bars_after + 1)
-
-        kline_df = df.iloc[start_idx:end_idx]
-
-        # 转换为前端可用的格式
-        kline_data = []
-        for idx, row in kline_df.iterrows():
-            kline_data.append({
-                'date': idx.strftime('%Y-%m-%d'),
-                'open': float(row['open']),
-                'high': float(row['high']),
-                'low': float(row['low']),
-                'close': float(row['close']),
-                'volume': float(row['volume']),
-                'amount': float(row['amount']) if 'amount' in row else 0
+                'error': '参数不完整'
             })
 
-        # 标记触发点位位置
-        trigger_idx_in_data = trigger_idx - start_idx
+        # 使用TriggerPointsReader获取格式化数据
+        trigger_points = reader.get_backtest_data(
+            strategy_name=strategy_name,
+            stock_code=stock_code,
+            backtest_period=backtest_period
+        )
+
+        # 按买入日期排序
+        sorted_points = sorted(
+            trigger_points.items(),
+            key=lambda x: (x[1].get('买入点位：', ''), x[0])
+        )
+
+        result = []
+        for key, point in sorted_points:
+            result.append({
+                'key': key,
+                'buy_date': point.get('买入', ''),
+                'sell_date': point.get('卖出', ''),
+                'profit_flag': point.get('盈亏标志', 0)
+            })
 
         return jsonify({
             'success': True,
-            'data': {
-                'strategy_name': strategy_name,
-                'stock_code': stock_code,
-                'market': market.upper(),
-                'trigger_date': trigger_date.strftime('%Y-%m-%d'),
-                'trigger_type': trigger_point.get('trigger_type', 'unknown'),
-                'trigger_price': trigger_point.get('price', 0),
-                'trigger_index': trigger_idx_in_data,
-                'kline_data': kline_data,
-                'trigger_info': trigger_point
-            }
+            'data': result
         })
     except Exception as e:
-        logger.error(f"获取K线数据失败: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
-            'message': str(e)
-        }), 500
-
-
-@app.route('/api/statistics')
-def get_statistics():
-    """获取统计信息"""
-    try:
-        stats = strategy_db.get_statistics()
-        return jsonify({
-            'success': True,
-            'data': stats
+            'error': str(e)
         })
-    except Exception as e:
-        logger.error(f"获取统计信息失败: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
 
 
 if __name__ == '__main__':
-    # 使用配置文件中的设置
-    web_config = config.get_web_config()
-    logger.info(f"启动WebUI服务: {web_config['host']}:{web_config['port']}")
-    app.run(
-        host=web_config['host'],
-        port=web_config['port'],
-        debug=True
-    )
+    app.run(debug=True, host='0.0.0.0', port=5001)

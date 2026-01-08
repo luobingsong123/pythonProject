@@ -14,9 +14,10 @@ class CodeBuddyStrategy(bt.Strategy):
     2. 买入后的下一个交易日卖出
     """
     params = (
-        ('period', 20),          # 查找最低成交量的周期
-        ('profit_threshold', 5.0),    # 总浮盈阈值（百分比）
+        ('period', 30),          # 查找最低成交量的周期
+        ('profit_threshold', 10.0),    # 总浮盈阈值（百分比）
         ('drawdown_threshold', 3.0), # 总回撤阈值（百分比）
+        ('hold_days_threshold', 99999),  # 最大持仓天数阈值
         ('printlog', True),
     )
 
@@ -140,16 +141,26 @@ class CodeBuddyStrategy(bt.Strategy):
                 # 检查卖出条件
                 # 条件1：总浮盈大于阈值
                 # 条件2：总回撤大于阈值（负收益）
-                sell_condition_met = (profit_rate >= self.p.profit_threshold) or (profit_rate <= -self.p.drawdown_threshold)
+                # 条件3：持有天数大于阈值
+                sell_condition_met = (profit_rate >= self.p.profit_threshold) or (profit_rate <= -self.p.drawdown_threshold) or (self.hold_days >= self.p.hold_days_threshold)
 
                 if sell_condition_met:
                     # 满仓卖出：卖出全部持仓
                     if self.p.printlog:
+                        sell_reason = []
+                        if profit_rate >= self.p.profit_threshold:
+                            sell_reason.append(f'浮盈达到{self.p.profit_threshold}%')
+                        if profit_rate <= -self.p.drawdown_threshold:
+                            sell_reason.append(f'浮亏达到-{self.p.drawdown_threshold}%')
+                        if self.hold_days >= self.p.hold_days_threshold:
+                            sell_reason.append(f'持仓天数达到{self.p.hold_days_threshold}天')
+
                         logger.info(f'触发卖出信号 - 日期: {self.datas[0].datetime.date()}, '
                                   f'当前价格: {current_price:.2f}, '
                                   f'买入价格: {self.buyprice:.2f}, '
                                   f'浮盈: {profit_rate:.2f}%, '
-                                  f'持有天数: {self.hold_days}')
+                                  f'持有天数: {self.hold_days}, '
+                                  f'卖出原因: {", ".join(sell_reason)}')
                     self.order = self.sell(size=self.position.size)
             return
 
@@ -184,6 +195,6 @@ class CodeBuddyStrategy(bt.Strategy):
             price = self.dataclose[-1]
             # 计算可买数量（考虑手续费，预留10%作为手续费缓冲）
             if price > 0:
-                buy_size = int((cash * 0.95) / price)  # 95%仓位，预留5%手续费缓冲
+                buy_size = int((cash * 0.90) / price)  # 95%仓位，预留5%手续费缓冲
                 if buy_size > 0:
                     self.order = self.buy(size=buy_size)

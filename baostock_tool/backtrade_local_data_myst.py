@@ -37,6 +37,7 @@ BACKTEST_CONFIG = {
     'end_date': date_config["end_date"],    # 回测截止日期
     'initial_cash': 100000,      # 初始资金
     'commission': 0.001,        # 手续费率（0.1%）
+    'slippage_perc': 0.001,      # 滑点率（0.1%），按百分比计算
 }
 
 
@@ -303,6 +304,10 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
         # 设置手续费
         cerebro.broker.setcommission(commission=BACKTEST_CONFIG['commission'])
 
+        # ============ 添加滑点设置 ============
+        # 按百分比滑点：买入价格上调，卖出价格下调
+        cerebro.broker.set_slippage_perc(perc=BACKTEST_CONFIG.get('slippage_perc', 0.001))
+
         # 添加分析器
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
@@ -339,6 +344,10 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
         logger.info(f"总手续费: {strat.total_commission:.2f}")
         logger.info(f"买入手续费: {strat.buy_commission:.2f}")
         logger.info(f"卖出手续费: {strat.sell_commission:.2f}")
+        # 在输出回测结果部分添加
+        logger.info(f"手续费率: {BACKTEST_CONFIG['commission'] * 100:.2f}%")
+        logger.info(f"滑点率: {BACKTEST_CONFIG.get('slippage_perc', 0) * 100:.2f}%")
+
         if strat.total_commission > 0:
             commission_ratio = (strat.total_commission / start_value) * 100
             logger.info(f"手续费占比: {commission_ratio:.2f}%")
@@ -465,7 +474,7 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
 
 if __name__ == "__main__":
     # 单只股票回测示例
-    # 使用CodeBuddy策略进行回测，并保存触发点位到数据库
+    # # 使用CodeBuddy策略进行回测，并保存触发点位到数据库
     # run_backtest(
     #     stock_code="601288",
     #     market="sh",
