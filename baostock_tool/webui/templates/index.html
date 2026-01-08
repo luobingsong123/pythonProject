@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>策略触发点位查询系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -25,9 +26,11 @@
             gap: 20px;
         }
 
-        /* 左侧面板 */
+        /* 左侧面板 - 策略选择 */
         .left-panel {
-            flex: 1;
+            width: 300px;
+            min-width: 300px;
+            max-width: 300px;
             background: white;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
@@ -36,7 +39,20 @@
             overflow: hidden;
         }
 
-        /* 右侧面板 */
+        /* 中间面板 - 回测记录 */
+        .middle-panel {
+            width: 300px;
+            min-width: 300px;
+            max-width: 300px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 右侧面板 - K线图 */
         .right-panel {
             flex: 1;
             background: white;
@@ -176,6 +192,7 @@
             transition: all 0.3s;
             margin-bottom: 8px;
             text-align: left;
+            width: 100%;
         }
 
         .period-button:hover {
@@ -232,6 +249,12 @@
             background: #f8f9ff;
         }
 
+        .trigger-point-button.active {
+            border-color: #667eea;
+            background: #e6f7ff;
+            border-width: 2px;
+        }
+
         .trigger-point-date {
             font-weight: 500;
             color: #333;
@@ -257,6 +280,19 @@
         .profit-badge.flat {
             background: #faad14;
             color: white;
+        }
+
+        /* K线图容器 */
+        .chart-wrapper {
+            flex: 1;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #kline-chart {
+            flex: 1;
+            min-height: 400px;
         }
 
         /* 加载状态 */
@@ -308,7 +344,7 @@
 </head>
 <body>
     <div class="container">
-        <!-- 左侧面板 -->
+        <!-- 左侧面板 - 策略选择 -->
         <div class="left-panel">
             <div class="panel-header">
                 <div class="panel-title">策略选择</div>
@@ -331,17 +367,28 @@
             </div>
         </div>
 
-        <!-- 右侧面板 -->
-        <div class="right-panel">
+        <!-- 中间面板 - 回测记录 -->
+        <div class="middle-panel">
             <div class="panel-header">
                 <div class="panel-title">回测记录</div>
                 <div id="selectedStock" style="font-size: 14px; opacity: 0.9; margin-top: 5px;"></div>
             </div>
-            <div class="panel-content" id="rightContent">
+            <div class="panel-content" id="middleContent">
                 <div class="empty-state">
                     <div class="empty-state-icon">📈</div>
                     <div>请在左侧选择证券代码</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- 右侧面板 - K线图 -->
+        <div class="right-panel">
+            <div class="panel-header">
+                <div class="panel-title">K线图</div>
+                <div id="chartInfo" style="font-size: 14px; opacity: 0.9; margin-top: 5px;"></div>
+            </div>
+            <div class="chart-wrapper">
+                <div id="kline-chart"></div>
             </div>
         </div>
     </div>
@@ -350,12 +397,39 @@
         // 全局变量
         let currentStrategy = '';
         let currentStock = '';
+        let klineChart = null;
 
         // 初始化页面
         document.addEventListener('DOMContentLoaded', function() {
+            initKlineChart();
             loadStrategies();
             bindEvents();
+
+            // 窗口大小变化时重绘图表
+            window.addEventListener('resize', function() {
+                if (klineChart) {
+                    klineChart.resize();
+                }
+            });
         });
+
+        // 初始化K线图
+        function initKlineChart() {
+            const chartDom = document.getElementById('kline-chart');
+            klineChart = echarts.init(chartDom);
+
+            klineChart.setOption({
+                title: {
+                    text: '暂无数据',
+                    left: 'center',
+                    top: 'center',
+                    textStyle: {
+                        color: '#999',
+                        fontSize: 16
+                    }
+                }
+            });
+        }
 
         // 绑定事件
         function bindEvents() {
@@ -470,7 +544,7 @@
         // 加载回测时段
         async function loadBacktestPeriods(stockCode) {
             currentStock = stockCode;
-            const contentDiv = document.getElementById('rightContent');
+            const contentDiv = document.getElementById('middleContent');
             const stockInfoDiv = document.getElementById('selectedStock');
 
             stockInfoDiv.textContent = `当前选中: ${stockCode}`;
@@ -485,21 +559,21 @@
 
                 if (result.success) {
                     if (result.data.length === 0) {
-                        showEmpty('rightContent', '该证券暂无回测记录', '📊');
+                        showEmpty('middleContent', '该证券暂无回测记录', '📊');
                     } else {
                         renderBacktestPeriods(result.data);
                     }
                 } else {
-                    showError('rightContent', `加载失败: ${result.error}`);
+                    showError('middleContent', `加载失败: ${result.error}`);
                 }
             } catch (error) {
-                showError('rightContent', `网络错误: ${error.message}`);
+                showError('middleContent', `网络错误: ${error.message}`);
             }
         }
 
         // 渲染回测时段列表
         function renderBacktestPeriods(periods) {
-            const contentDiv = document.getElementById('rightContent');
+            const contentDiv = document.getElementById('middleContent');
             contentDiv.innerHTML = '';
 
             periods.forEach(period => {
@@ -512,7 +586,7 @@
                 triggerPointsList.className = 'trigger-points-list';
                 triggerPointsList.id = `triggers-${period.replace(/[^a-zA-Z0-9]/g, '-')}`;
 
-                // 点击事件
+                // 点击事件 - 只展开触发点位列表，不加载K线图
                 periodButton.addEventListener('click', async function() {
                     const isExpanded = triggerPointsList.classList.contains('show');
 
@@ -528,7 +602,7 @@
                         periodButton.classList.add('expanded');
                         triggerPointsList.classList.add('show');
 
-                        // 加载触发点位数据
+                        // 只加载触发点位数据，不加载K线图
                         await loadTriggerPoints(period, triggerPointsList);
                     }
                 });
@@ -595,8 +669,244 @@
                     this.title = `买入: ${point.buy_date}\n卖出: ${point.sell_date}\n盈亏: ${badgeText}`;
                 });
 
+                // 点击事件 - 加载K线图
+                button.addEventListener('click', async function() {
+                    // 移除其他active状态
+                    document.querySelectorAll('.trigger-point-button').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    button.classList.add('active');
+
+                    // 加载K线图数据（以买入日期为基准）
+                    await loadKlineData(point.buy_date);
+                });
+
                 container.appendChild(button);
             });
+        }
+
+        // 加载K线图数据
+        async function loadKlineData(buyDate) {
+            // 显示加载状态
+            klineChart.showLoading();
+
+            try {
+                const stockCode = currentStock;
+
+                const url = `/api/kline_data?stock_code=${encodeURIComponent(stockCode)}&start_date=${encodeURIComponent(buyDate)}`;
+
+                const response = await fetch(url);
+                const result = await response.json();
+
+                klineChart.hideLoading();
+
+                if (result.success) {
+                    if (result.data && result.data.length > 0) {
+                        // 更新图表信息
+                        document.getElementById('chartInfo').textContent = `买入日期: ${buyDate} | 数据范围: ${result.data[0].date} 至 ${result.data[result.data.length - 1].date}`;
+                        renderKlineChart(result.data, buyDate);
+                    } else {
+                        klineChart.setOption({
+                            title: {
+                                text: '暂无K线数据',
+                                left: 'center',
+                                top: 'center',
+                                textStyle: {
+                                    color: '#999',
+                                    fontSize: 16
+                                }
+                            }
+                        });
+                    }
+                } else {
+                    klineChart.setOption({
+                        title: {
+                            text: `加载失败: ${result.error}`,
+                            left: 'center',
+                            top: 'center',
+                            textStyle: {
+                                color: '#ff4d4f',
+                                fontSize: 16
+                            }
+                        }
+                    });
+                }
+            } catch (error) {
+                klineChart.hideLoading();
+                klineChart.setOption({
+                    title: {
+                        text: `网络错误: ${error.message}`,
+                        left: 'center',
+                        top: 'center',
+                        textStyle: {
+                            color: '#ff4d4f',
+                            fontSize: 16
+                        }
+                    }
+                });
+            }
+        }
+
+        // 渲染K线图
+        function renderKlineChart(data, buyDate) {
+            const dates = data.map(item => item.date);
+            const values = data.map(item => [item.open, item.close, item.low, item.high]);
+            const volumes = data.map(item => item.volume);
+
+            // 查找买入日期的索引
+            const buyIndex = dates.indexOf(buyDate);
+
+            // 构建标记点数据（买入日期的红色向上三角形）
+            const markPointData = [];
+            if (buyIndex !== -1) {
+                const buyLow = values[buyIndex][2];
+                markPointData.push({
+                    name: '买入',
+                    coord: [buyDate, buyLow],
+                    value: '买入',
+                    symbol: 'triangle',
+                    symbolSize: 20,
+                    symbolOffset: [0, 15],
+                    // symbolRotate: 180, // 向上旋转180度
+                    itemStyle: {
+                        color: '#ff4d4f',
+                        borderColor: '#ff4d4f',
+                        borderWidth: 2
+                    },
+                    label: {
+                        show: true,
+                        position: 'bottom',
+                        color: '#ff4d4f',
+                        fontSize: 12,
+                        fontWeight: 'bold',
+                        formatter: '买入',
+                        offset: [0, 0],
+                    }
+                });
+            }
+
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    },
+                    formatter: function(params) {
+                        const dataIndex = params[0].dataIndex;
+                        const item = data[dataIndex];
+                        return `
+                            <div style="font-weight:bold;margin-bottom:5px;">${item.date}</div>
+                            <div>开盘: ${item.open}</div>
+                            <div>收盘: ${item.close}</div>
+                            <div>最高: ${item.high}</div>
+                            <div>最低: ${item.low}</div>
+                            <div>成交量: ${(item.volume / 10000).toFixed(2)}万手</div>
+                        `;
+                    }
+                },
+                grid: [
+                    {
+                        left: '10%',
+                        right: '8%',
+                        top: '10%',
+                        height: '60%'
+                    },
+                    {
+                        left: '10%',
+                        right: '8%',
+                        top: '75%',
+                        height: '15%'
+                    }
+                ],
+                xAxis: [
+                    {
+                        type: 'category',
+                        data: dates,
+                        scale: true,
+                        boundaryGap: false,
+                        axisLine: { onZero: false },
+                        splitLine: { show: false },
+                        splitNumber: 20
+                    },
+                    {
+                        type: 'category',
+                        gridIndex: 1,
+                        data: dates,
+                        scale: true,
+                        boundaryGap: false,
+                        axisLine: { onZero: false },
+                        axisTick: { show: false },
+                        splitLine: { show: false },
+                        axisLabel: { show: false }
+                    }
+                ],
+                yAxis: [
+                    {
+                        scale: true,
+                        splitArea: {
+                            show: true
+                        }
+                    },
+                    {
+                        scale: true,
+                        gridIndex: 1,
+                        splitNumber: 2,
+                        axisLabel: { show: false },
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        splitLine: { show: false }
+                    }
+                ],
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        xAxisIndex: [0, 1],
+                        start: 0,
+                        end: 100
+                    },
+                    {
+                        show: true,
+                        xAxisIndex: [0, 1],
+                        type: 'slider',
+                        top: '92%',
+                        start: 0,
+                        end: 100
+                    }
+                ],
+                series: [
+                    {
+                        name: 'K线',
+                        type: 'candlestick',
+                        data: values,
+                        markPoint: {
+                            data: markPointData
+                        },
+                        itemStyle: {
+                            color: '#ef232a',
+                            color0: '#14b143',
+                            borderColor: '#ef232a',
+                            borderColor0: '#14b143'
+                        }
+                    },
+                    {
+                        name: '成交量',
+                        type: 'bar',
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: volumes,
+                        itemStyle: {
+                            color: function(params) {
+                                const dataIndex = params.dataIndex;
+                                const close = values[dataIndex][1];
+                                const open = values[dataIndex][0];
+                                return close >= open ? '#14b143' : '#ef232a';
+                            }
+                        }
+                    }
+                ]
+            };
+
+            klineChart.setOption(option, true);
         }
 
         // 显示错误
