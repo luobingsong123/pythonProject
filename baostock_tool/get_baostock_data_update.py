@@ -14,6 +14,9 @@ logger = setup_logger(logger_name=__name__,
                    log_level=log_config["log_level"],
                    log_dir=log_config["log_dir"], )
 
+# 全局参数：最新交易日
+LATEST_TRADING_DAY = None
+
 
 class BaostockDataCollector:
     def __init__(self, db_config):
@@ -119,7 +122,7 @@ class BaostockDataCollector:
 
     def save_to_database(self, df):
         """
-        将交易日数据保存到数据库
+        将交易日数据保存到数据库，并更新全局最新交易日
         """
         if df is None or df.empty:
             logger.warning("无数据可保存")
@@ -139,6 +142,14 @@ class BaostockDataCollector:
 
             self.conn.commit()
             logger.info(f"成功保存 {success_count} 条数据到数据库")
+
+            # 更新全局最新交易日参数
+            global LATEST_TRADING_DAY
+            trading_days = df[df['is_trading_day'] == 1]['calendar_date']
+            if not trading_days.empty:
+                LATEST_TRADING_DAY = trading_days.max()
+                logger.info(f"全局最新交易日已更新为: {LATEST_TRADING_DAY}")
+
             return True
 
         except Exception as e:
@@ -150,9 +161,15 @@ class BaostockDataCollector:
         """
         获取所有股票基本信息
         """
+        global LATEST_TRADING_DAY
+
         if query_date is None:
-            query_date = datetime.now().strftime("%Y-%m-%d")
-            logger.info(f"使用当前日期: {query_date}")
+            if LATEST_TRADING_DAY:
+                query_date = LATEST_TRADING_DAY.strftime("%Y-%m-%d")
+                logger.info(f"使用全局最新交易日: {query_date}")
+            else:
+                query_date = datetime.now().strftime("%Y-%m-%d")
+                logger.info(f"使用当前日期: {query_date}")
 
         try:
             rs = bs.query_all_stock(day=query_date)
@@ -381,16 +398,19 @@ class BaostockDataCollector:
             return False
 
         sql = """
-        SELECT MAX(DATE) AS latest_date 
-        FROM stock_daily_data 
+        SELECT MAX(DATE) AS latest_date
+        FROM stock_daily_data
         WHERE code_int = 399998
         """
         self.cursor.execute(sql)
         result = self.cursor.fetchone()  # 获取单个结果
-        if result:
+        if result['latest_date']:
             start_date = result['latest_date'].strftime('%Y-%m-%d')
         else:
-            start_date = '2025-01-01'
+            start_date = '2000-01-01'
+
+        global LATEST_TRADING_DAY
+
         now = datetime.now()
         current_time = now.time()
         target_time = datetime.strptime("18:30", "%H:%M").time()
@@ -409,13 +429,19 @@ class BaostockDataCollector:
                 return False
             result = self.save_to_database(df)
             logger.info(f"保存交易日数据结果: {result}")
+
+            # 使用全局最新交易日作为end_date
+            global LATEST_TRADING_DAY
+            if LATEST_TRADING_DAY:
+                end_date = LATEST_TRADING_DAY.strftime("%Y-%m-%d")
+                logger.info(f"使用全局最新交易日作为end_date: {end_date}")
         except Exception as e:
             logger.error(f"保存交易日数据异常: {e}")
 
         try:
             # 3. 获取并保存所有股票基本信息
             logger.info("步骤1: 获取股票基本信息")
-            stock_df = self.get_all_stocks(end_date)
+            stock_df = self.get_all_stocks()  # 不传递end_date，使用全局最新交易日
             if stock_df is not None:
                 self.save_stock_basic_info(stock_df)
 
@@ -442,13 +468,33 @@ class BaostockDataCollector:
                 for idx, code in enumerate(stocks_to_process):
                     logger.info(f"处理股票 [{idx + 1}/{total_stocks}]: {code}")
 
+                    # 查询该股票在stock_daily_data表中的最新date
+                    market, code_int = self.parse_stock_code(code)
+                    sql = """
+                    SELECT MAX(date) AS latest_date
+                    FROM stock_daily_data
+                    WHERE market = %s AND code_int = %s
+                    """
+                    self.cursor.execute(sql, (market, code_int))
+                    result = self.cursor.fetchone()
+
+                    # 如果存在最新日期，则使用该日期的下一个交易日作为start_date
+                    if result and result['latest_date']:
+                        # 使用原始的start_date（数据库中最新日期）
+                        stock_start_date = result['latest_date'].strftime('%Y-%m-%d')
+                        logger.info(f"股票{code} 数据库最新日期: {stock_start_date}")
+                    else:
+                        # 如果数据库中没有该股票的数据，使用全局start_date
+                        stock_start_date = start_date
+                        logger.info(f"股票{code} 无历史数据，使用起始日期: {stock_start_date}")
+
                     for freq in minute_frequencies:
                         if freq != 'd':
-                            minute_df = self.get_stock_k_data(code, start_date, end_date, frequency=freq)
+                            minute_df = self.get_stock_k_data(code, stock_start_date, end_date, frequency=freq)
                             if minute_df is not None:
                                 self.save_minute_data_batch(code, minute_df, freq)
                         else:
-                            daily_df = self.get_stock_k_data(code, start_date, end_date, frequency=freq)
+                            daily_df = self.get_stock_k_data(code, stock_start_date, end_date, frequency=freq)
                             if daily_df is not None:
                                 self.save_daily_data_batch(code, daily_df)
 
@@ -490,7 +536,7 @@ def main():
     # 执行全量数据收集
     success = collector.collect_all_data(
         # start_date="2020-01-01",  # 从2020年开始拉取
-        minute_frequencies=['d', '5', '30', '60']  # 获取多种分钟线数据
+        minute_frequencies=['d']  # 获取多种分钟线数据
     )
 
     if success:
