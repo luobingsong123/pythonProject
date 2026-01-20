@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import os
 # 导入CodeBuddy策略
 from utils.strategies.codebuddy_st import CodeBuddyStrategy
+# 导入CodeBuddy底分型策略
+from utils.strategies.codebuddy_st_dfx import CodeBuddyStrategyDFX
 # 导入策略触发点位数据库管理
 from database_schema.strategy_trigger_db import StrategyTriggerDB
 
@@ -44,9 +46,6 @@ BACKTEST_CONFIG = {
 # 本代码仅用于回测研究，实盘使用风险自担
 
 def get_stock_data_from_db(stock_code="601288", market="sh", start_date="2019-01-01"):
-    """
-    从数据库提取单只股票历史数据（修复版本）
-    """
     # 使用SQLAlchemy连接（推荐方式）
     query = f"""
     SELECT date, open, high, low, close, volume, amount, pctChg
@@ -371,8 +370,8 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
         if save_to_db:
             try:
                 strategy_db = StrategyTriggerDB()
-                # 获取策略名称
-                strategy_name = strategy_class.__name__
+                # 获取策略名称（从策略类的STRATEGY_NAME属性获取）
+                strategy_name = getattr(strategy_class, 'STRATEGY_NAME', strategy_class.__name__)
                 # 保存触发点位
                 strategy_db.insert_trigger_points(
                     strategy_name=strategy_name,
@@ -474,21 +473,22 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
 
 if __name__ == "__main__":
     # 单只股票回测示例
-    # # 使用CodeBuddy策略进行回测，并保存触发点位到数据库
-    # run_backtest(
-    #     stock_code="601288",
-    #     market="sh",
-    #     name="农业银行",
+    # 使用CodeBuddy底分型策略进行回测，并保存触发点位到数据库
+    run_backtest(
+        stock_code="601288",
+        market="sh",
+        name="农业银行",
+        start_date=BACKTEST_CONFIG['start_date'],
+        end_date=BACKTEST_CONFIG['end_date'],
+        # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
+        strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
+        save_to_db=True  # 设置为True保存触发点位到数据库
+    )
+
+    # # 批量回测（保存触发点位到数据库）
+    # batch_backtest(
     #     start_date=BACKTEST_CONFIG['start_date'],
     #     end_date=BACKTEST_CONFIG['end_date'],
     #     strategy_class=CodeBuddyStrategy,
     #     save_to_db=True  # 设置为True保存触发点位到数据库
     # )
-
-    # 批量回测（保存触发点位到数据库）
-    batch_backtest(
-        start_date=BACKTEST_CONFIG['start_date'],
-        end_date=BACKTEST_CONFIG['end_date'],
-        strategy_class=CodeBuddyStrategy,
-        save_to_db=True  # 设置为True保存触发点位到数据库
-    )

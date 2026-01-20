@@ -240,8 +240,14 @@
             font-size: 13px;
             transition: all 0.3s;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+        }
+
+        .trigger-point-price {
+            font-size: 12px;
+            color: #666;
         }
 
         .trigger-point-button:hover {
@@ -261,25 +267,31 @@
         }
 
         .profit-badge {
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 12px;
+            padding: 2px 18px;
+            border-radius: 18px;
+            font-size: 18px;
             font-weight: bold;
         }
 
         .profit-badge.profit {
-            background: #52c41a;
-            color: white;
-        }
-
-        .profit-badge.loss {
             background: #ff4d4f;
             color: white;
         }
 
-        .profit-badge.flat {
-            background: #faad14;
+        .profit-badge.loss {
+            background: #52c41a;
             color: white;
+        }
+
+        .profit-badge.flat {
+            background: #8c8c8c;
+            color: white;
+        }
+
+        .trigger-point-price {
+            font-size: 12px;
+            color: #000;
+            font-weight: bold;
         }
 
         /* K线图容器 */
@@ -659,14 +671,36 @@
                     badgeText = '亏';
                 }
 
+                // 格式化价格显示
+                const buyPriceText = point.buy_price ? `¥ ${point.buy_price.toFixed(2)}` : '';
+                const sellPriceText = point.sell_price ? `-> ¥ ${point.sell_price.toFixed(2)}` : '';
+
+                // 计算百分比
+                let percentText = '';
+                if (point.buy_price && point.sell_price) {
+                    const percent = ((point.sell_price - point.buy_price) / point.buy_price * 100).toFixed(2);
+                    const sign = percent > 0 ? '+' : '';
+                    percentText = ` (${sign}${percent}%)`;
+                }
+
+                const priceText = buyPriceText && sellPriceText ? `${buyPriceText} ${sellPriceText}${percentText}` : (buyPriceText || sellPriceText || '');
+
                 button.innerHTML = `
-                    <span class="trigger-point-date">买入: ${point.buy_date}</span>
-                    <span class="profit-badge ${badgeClass}">${badgeText}</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span class="trigger-point-date">买入: ${point.buy_date}</span>
+                        <span class="profit-badge ${badgeClass}">${badgeText}</span>
+                    </div>
+                    ${priceText ? `<div class="trigger-point-price">${priceText}</div>` : ''}
                 `;
+
+                // 保存卖出日期和价格到按钮的data属性
+                button.dataset.sellDate = point.sell_date;
+                button.dataset.buyPrice = point.buy_price || 0;
+                button.dataset.sellPrice = point.sell_price || 0;
 
                 // 鼠标悬停显示详细信息
                 button.addEventListener('mouseenter', function() {
-                    this.title = `买入: ${point.buy_date}\n卖出: ${point.sell_date}\n盈亏: ${badgeText}`;
+                    this.title = `买入: ${point.buy_date}${buyPriceText}\n卖出: ${point.sell_date}${sellPriceText}\n盈亏: ${badgeText}`;
                 });
 
                 // 点击事件 - 加载K线图
@@ -677,8 +711,8 @@
                     });
                     button.classList.add('active');
 
-                    // 加载K线图数据（以买入日期为基准）
-                    await loadKlineData(point.buy_date);
+                    // 加载K线图数据（以买入日期为基准，如果存在卖出日期则使用卖出日期）
+                    await loadKlineData(point.buy_date, point.sell_date, point.buy_price, point.sell_price);
                 });
 
                 container.appendChild(button);
@@ -686,14 +720,18 @@
         }
 
         // 加载K线图数据
-        async function loadKlineData(buyDate) {
+        async function loadKlineData(buyDate, sellDate = null, buyPrice = 0, sellPrice = 0) {
             // 显示加载状态
             klineChart.showLoading();
 
             try {
                 const stockCode = currentStock;
 
-                const url = `/api/kline_data?stock_code=${encodeURIComponent(stockCode)}&start_date=${encodeURIComponent(buyDate)}`;
+                // 构建URL，如果有卖出日期则添加sell_date参数
+                let url = `/api/kline_data?stock_code=${encodeURIComponent(stockCode)}&start_date=${encodeURIComponent(buyDate)}`;
+                if (sellDate) {
+                    url += `&sell_date=${encodeURIComponent(sellDate)}`;
+                }
 
                 const response = await fetch(url);
                 const result = await response.json();
@@ -703,8 +741,19 @@
                 if (result.success) {
                     if (result.data && result.data.length > 0) {
                         // 更新图表信息
-                        document.getElementById('chartInfo').textContent = `买入日期: ${buyDate} | 数据范围: ${result.data[0].date} 至 ${result.data[result.data.length - 1].date}`;
-                        renderKlineChart(result.data, buyDate);
+                        let infoText = `买入日期: ${buyDate}`;
+                        if (buyPrice > 0) {
+                            infoText += ` (¥${buyPrice.toFixed(2)})`;
+                        }
+                        if (sellDate) {
+                            infoText += ` | 卖出日期: ${sellDate}`;
+                            if (sellPrice > 0) {
+                                infoText += ` (¥${sellPrice.toFixed(2)})`;
+                            }
+                        }
+                        infoText += ` | 数据范围: ${result.data[0].date} 至 ${result.data[result.data.length - 1].date}`;
+                        document.getElementById('chartInfo').textContent = infoText;
+                        renderKlineChart(result.data, buyDate, sellDate, buyPrice, sellPrice);
                     } else {
                         klineChart.setOption({
                             title: {
@@ -748,26 +797,28 @@
         }
 
         // 渲染K线图
-        function renderKlineChart(data, buyDate) {
+        function renderKlineChart(data, buyDate, sellDate = null, buyPrice = 0, sellPrice = 0) {
             const dates = data.map(item => item.date);
             const values = data.map(item => [item.open, item.close, item.low, item.high]);
             const volumes = data.map(item => item.volume);
 
-            // 查找买入日期的索引
+            // 查找买入和卖出日期的索引
             const buyIndex = dates.indexOf(buyDate);
+            const sellIndex = sellDate ? dates.indexOf(sellDate) : -1;
 
-            // 构建标记点数据（买入日期的红色向上三角形）
+            // 构建标记点数据
             const markPointData = [];
             if (buyIndex !== -1) {
                 const buyLow = values[buyIndex][2];
+                // 构建买入标记标签
+                const buyLabel = buyPrice > 0 ? `¥${buyPrice.toFixed(2)}` : '买入';
                 markPointData.push({
                     name: '买入',
                     coord: [buyDate, buyLow],
-                    value: '买入',
+                    value: buyLabel,
                     symbol: 'triangle',
-                    symbolSize: 20,
-                    symbolOffset: [0, 15],
-                    // symbolRotate: 180, // 向上旋转180度
+                    symbolSize: 25,
+                    symbolOffset: [0, 18],
                     itemStyle: {
                         color: '#ff4d4f',
                         borderColor: '#ff4d4f',
@@ -777,10 +828,40 @@
                         show: true,
                         position: 'bottom',
                         color: '#ff4d4f',
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: 'bold',
-                        formatter: '买入',
-                        offset: [0, 0],
+                        formatter: buyLabel,
+                        offset: [0, 5],
+                    }
+                });
+            }
+
+            // 如果存在卖出日期，添加卖出标记点
+            if (sellDate && sellIndex !== -1) {
+                const sellHigh = values[sellIndex][3];
+                // 构建卖出标记标签
+                const sellLabel = sellPrice > 0 ? `¥${sellPrice.toFixed(2)}` : '卖出';
+                markPointData.push({
+                    name: '卖出',
+                    coord: [sellDate, sellHigh],
+                    value: sellLabel,
+                    symbol: 'triangle',
+                    symbolSize: 25,
+                    symbolOffset: [0, -18],
+                    symbolRotate: 180,
+                    itemStyle: {
+                        color: '#52c41a',
+                        borderColor: '#52c41a',
+                        borderWidth: 2
+                    },
+                    label: {
+                        show: true,
+                        position: 'top',
+                        color: '#52c41a',
+                        fontSize: 13,
+                        fontWeight: 'bold',
+                        formatter: sellLabel,
+                        offset: [0, 5],
                     }
                 });
             }
@@ -794,12 +875,15 @@
                     formatter: function(params) {
                         const dataIndex = params[0].dataIndex;
                         const item = data[dataIndex];
+                        const changePercent = ((item.close - item.open) / item.open * 100).toFixed(2);
+                        const changeColor = changePercent >= 0 ? '#ef232a' : '#14b143';
                         return `
                             <div style="font-weight:bold;margin-bottom:5px;">${item.date}</div>
                             <div>开盘: ${item.open}</div>
                             <div>收盘: ${item.close}</div>
                             <div>最高: ${item.high}</div>
                             <div>最低: ${item.low}</div>
+                            <div>涨跌幅: <span style="color:${changeColor};font-weight:bold;">${changePercent}%</span></div>
                             <div>成交量: ${(item.volume / 10000).toFixed(2)}万手</div>
                         `;
                     }

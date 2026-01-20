@@ -63,13 +63,14 @@ def determine_market_by_code(stock_code):
         return 'sz'
 
 
-def get_stock_data_from_db(stock_code="601288", market="sh", buy_date="2019-01-01"):
+def get_stock_data_from_db(stock_code="601288", market="sh", buy_date="2019-01-01", sell_date=None):
     """
     从数据库获取股票K线数据
     参数:
         stock_code: 证券代码
         market: 市场（sh/sz/bj）
-        buy_date: 买入日期，作为查询中心点
+        buy_date: 买入日期
+        sell_date: 卖出日期（可选）
     """
     try:
         # 获取数据库引擎
@@ -89,10 +90,20 @@ def get_stock_data_from_db(stock_code="601288", market="sh", buy_date="2019-01-0
 
         engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=3600)
 
-        # 计算查询时间范围（买入日期前后38个交易日，约60个自然日）
+        # 计算查询时间范围
         buy_dt = datetime.strptime(buy_date, "%Y-%m-%d")
-        query_start_date = (buy_dt - timedelta(days=60)).strftime("%Y-%m-%d")
-        query_end_date = (buy_dt + timedelta(days=60)).strftime("%Y-%m-%d")
+
+        # 当存在卖出点位时，展示买入前30个交易日到卖出后30个交易日之间的数据
+        # 当卖出点位不存在时，保留原展示逻辑（买入前后38个交易日，约60个自然日）
+        if sell_date:
+            sell_dt = datetime.strptime(sell_date, "%Y-%m-%d")
+            # 买入前30个交易日约42个自然日，卖出后30个交易日约42个自然日
+            query_start_date = (buy_dt - timedelta(days=42)).strftime("%Y-%m-%d")
+            query_end_date = (sell_dt + timedelta(days=42)).strftime("%Y-%m-%d")
+        else:
+            # 原逻辑：买入日期前后38个交易日，约60个自然日
+            query_start_date = (buy_dt - timedelta(days=60)).strftime("%Y-%m-%d")
+            query_end_date = (buy_dt + timedelta(days=60)).strftime("%Y-%m-%d")
 
         # 使用SQLAlchemy连接查询（限制在买入日期前后的时间范围内）
         query = f"""
@@ -319,6 +330,8 @@ def get_trigger_points():
                 'key': key,
                 'buy_date': point.get('买入', ''),
                 'sell_date': point.get('卖出', ''),
+                'buy_price': point.get('买入价格', 0),
+                'sell_price': point.get('卖出价格', 0),
                 'profit_flag': point.get('盈亏标志', 0)
             })
 
@@ -339,11 +352,13 @@ def get_kline_data():
     获取K线数据API
     参数:
         - stock_code: 证券代码（带市场前缀，如 sh.601288）
-        - start_date: 买入日期，作为查询中心点
+        - start_date: 买入日期
+        - sell_date: 卖出日期（可选）
     """
     try:
         stock_code_full = request.args.get('stock_code', '')
         buy_date = request.args.get('start_date', '')
+        sell_date = request.args.get('sell_date', None)
 
         if not stock_code_full or not buy_date:
             return jsonify({
@@ -366,8 +381,8 @@ def get_kline_data():
         # 统一格式化为6位字符串（补前导零）
         stock_code = str(stock_code).zfill(6)
 
-        # 查询K线数据（以买入日期为中心，前后38个交易日）
-        kline_data = get_stock_data_from_db(stock_code=stock_code, market=market, buy_date=buy_date)
+        # 查询K线数据（根据是否有卖出日期决定时间范围）
+        kline_data = get_stock_data_from_db(stock_code=stock_code, market=market, buy_date=buy_date, sell_date=sell_date)
 
         return jsonify({
             'success': True,

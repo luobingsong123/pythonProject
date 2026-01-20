@@ -138,19 +138,29 @@ class TriggerPointsReader:
         while i < len(trigger_points_json):
             point = trigger_points_json[i]
 
+            # 检查point是否为None或不是字典
+            if point is None or not isinstance(point, dict):
+                logger.warning(f"触发点位数据为空或格式不正确: {point}, 跳过该点位")
+                i += 1
+                continue
+
             if point.get('trigger_type') == 'buy':
                 # 找到买入点
                 buy_date = point.get('date', '')
+                buy_price = point.get('price', 0)
 
                 # 默认卖出信息和盈亏标志
                 sell_date = ''
+                sell_price = 0
                 profit_flag = 0  # 0=平盘/未知, 1=盈利, -1=亏损
 
                 # 查找相邻的卖出点（下一个元素）
                 if i + 1 < len(trigger_points_json):
                     next_point = trigger_points_json[i + 1]
-                    if next_point.get('trigger_type') == 'sell':
+                    # 检查卖出点是否为None或不是字典
+                    if next_point is not None and isinstance(next_point, dict) and next_point.get('trigger_type') == 'sell':
                         sell_date = next_point.get('date', '')
+                        sell_price = next_point.get('price', 0)
 
                         # 从卖出JSON中获取profit字段判断盈亏
                         profit = next_point.get('profit', 0)
@@ -175,6 +185,8 @@ class TriggerPointsReader:
                 trigger_points.append({
                     '买入': buy_date,
                     '卖出': sell_date,
+                    '买入价格': buy_price,
+                    '卖出价格': sell_price,
                     '盈亏标志': profit_flag
                 })
 
