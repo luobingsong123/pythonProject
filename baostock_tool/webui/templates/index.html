@@ -584,19 +584,38 @@
         }
 
         // 渲染回测时段列表
-        function renderBacktestPeriods(periods) {
+        async function renderBacktestPeriods(periods) {
             const contentDiv = document.getElementById('middleContent');
             contentDiv.innerHTML = '';
 
-            periods.forEach(period => {
-                const periodButton = document.createElement('button');
-                periodButton.className = 'period-button';
-                periodButton.textContent = period;
+            const strategy = document.getElementById('strategySelect').value;
 
+            for (const period of periods) {
                 // 创建触发点位列表容器
                 const triggerPointsList = document.createElement('div');
                 triggerPointsList.className = 'trigger-points-list';
                 triggerPointsList.id = `triggers-${period.replace(/[^a-zA-Z0-9]/g, '-')}`;
+
+                // 加载该回测时段的触发点位数据，计算盈亏统计
+                const stats = await loadPeriodStats(period, triggerPointsList);
+
+                // 创建回测时段按钮
+                const periodButton = document.createElement('button');
+                periodButton.className = 'period-button';
+
+                // 构建按钮内容：时段 + 盈亏统计
+                const statsText = stats.total > 0
+                    ? `<div style="font-size: 12px; font-weight: bold; margin-top: 4px; opacity: 0.85;">
+                        盈:${stats.profit} 亏:${stats.loss} 平:${stats.flat}  盈利率: ${stats.winRate}%
+                       </div>`
+                    : '';
+
+                periodButton.innerHTML = `
+                    <div style="text-align: left;">
+                        <div style="font-size: 14px;">${period}</div>
+                        ${statsText}
+                    </div>
+                `;
 
                 // 点击事件 - 只展开触发点位列表，不加载K线图
                 periodButton.addEventListener('click', async function() {
@@ -613,21 +632,16 @@
                     if (!isExpanded) {
                         periodButton.classList.add('expanded');
                         triggerPointsList.classList.add('show');
-
-                        // 只加载触发点位数据，不加载K线图
-                        await loadTriggerPoints(period, triggerPointsList);
                     }
                 });
 
                 contentDiv.appendChild(periodButton);
                 contentDiv.appendChild(triggerPointsList);
-            });
+            }
         }
 
-        // 加载触发点位
-        async function loadTriggerPoints(period, container) {
-            container.innerHTML = '<div class="loading" style="padding: 20px;">加载中...</div>';
-
+        // 加载回测时段的统计数据
+        async function loadPeriodStats(period, container) {
             try {
                 const strategy = document.getElementById('strategySelect').value;
                 const stockCode = currentStock;
@@ -637,17 +651,35 @@
                 const response = await fetch(url);
                 const result = await response.json();
 
-                if (result.success) {
-                    if (result.data.length === 0) {
-                        container.innerHTML = '<div style="padding: 20px; color: #999; text-align: center;">暂无触发点位</div>';
-                    } else {
-                        renderTriggerPoints(result.data, container);
-                    }
+                if (result.success && result.data.length > 0) {
+                    // 预先填充触发点位列表
+                    renderTriggerPoints(result.data, container);
+
+                    // 计算统计信息
+                    let profit = 0, loss = 0, flat = 0;
+                    result.data.forEach(point => {
+                        if (point.profit_flag === 1) profit++;
+                        else if (point.profit_flag === -1) loss++;
+                        else flat++;
+                    });
+
+                    const total = profit + loss + flat;
+                    const winRate = total > 0 ? ((profit / total) * 100).toFixed(1) : 0;
+
+                    return {
+                        total,
+                        profit,
+                        loss,
+                        flat,
+                        winRate
+                    };
                 } else {
-                    container.innerHTML = `<div class="error">加载失败: ${result.error}</div>`;
+                    container.innerHTML = '<div style="padding: 20px; color: #999; text-align: center;">暂无触发点位</div>';
+                    return { total: 0, profit: 0, loss: 0, flat: 0, winRate: 0 };
                 }
             } catch (error) {
-                container.innerHTML = `<div class="error">网络错误: ${error.message}</div>`;
+                container.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+                return { total: 0, profit: 0, loss: 0, flat: 0, winRate: 0 };
             }
         }
 
