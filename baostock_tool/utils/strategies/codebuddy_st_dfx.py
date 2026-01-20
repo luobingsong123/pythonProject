@@ -85,22 +85,30 @@ class CodeBuddyStrategyDFX(bt.Strategy):
                 # 统计卖出手续费
                 self.sell_commission += order.executed.comm
                 self.total_commission += order.executed.comm
-                # 将卖出信息合并到买入记录中
+                # 记录卖出触发点位
                 if self.current_buy_info:
                     sell_date = self.datas[0].datetime.date()
-                    # 更新买入记录，添加卖出信息
-                    self.current_buy_info.update({
-                        'sell_date': str(sell_date),
-                        'sell_price': float(order.executed.price),
-                        'sell_commission': float(order.executed.comm),
+                    sell_info = {
+                        'date': str(sell_date),
+                        'trigger_type': 'sell',
+                        'price': float(order.executed.price),
+                        'volume': float(order.executed.size),
+                        'commission': float(order.executed.comm),
                         'profit': float(order.executed.pnl),
                         'profit_rate': round((order.executed.pnl / self.buyprice) * 100, 2) if self.buyprice else 0,
                         'hold_days': self.hold_days
-                    })
-                    # 将完整的交易记录添加到触发点位列表
+                    }
+                    # 买入记录
                     self.trigger_points.append(self.current_buy_info)
-                    self.trigger_points.append(self.last_trigger_dfx_info)
+                    # 底分型触发记录
+                    if self.last_trigger_dfx_info:
+                        dfx_info = self.last_trigger_dfx_info.copy()
+                        dfx_info['trigger_type'] = 'buy_signal'
+                        self.trigger_points.append(dfx_info)
+                    # 卖出记录
+                    self.trigger_points.append(sell_info)
                     self.current_buy_info = None
+                    self.last_trigger_dfx_info = None
                 if self.p.printlog:
                     logger.debug(f'卖出执行 - 价格: {order.executed.price:.2f}, '
                               f'数量: {order.executed.size}, '
@@ -170,16 +178,12 @@ class CodeBuddyStrategyDFX(bt.Strategy):
         # 如果还有未平仓的买入记录，需要保存到trigger_points
         if self.current_buy_info:
             # 标记为未完成交易
-            self.current_buy_info.update({
-                'sell_date': None,
-                'sell_price': None,
-                'sell_commission': None,
-                'profit': None,
-                'profit_rate': None,
-                'hold_days': self.hold_days,
-                'status': '未平仓'
-            })
             self.trigger_points.append(self.current_buy_info)
+            # 保存底分型触发记录
+            if self.last_trigger_dfx_info:
+                dfx_info = self.last_trigger_dfx_info.copy()
+                dfx_info['trigger_type'] = 'buy_signal'
+                self.trigger_points.append(dfx_info)
             if self.p.printlog:
                 logger.warning(f'回测结束，存在未平仓持仓 - 买入日期: {self.current_buy_info["date"]}, '
                           f'持仓天数: {self.hold_days}')
