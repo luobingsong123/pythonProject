@@ -11,8 +11,22 @@ import os
 from utils.strategies.codebuddy_st import CodeBuddyStrategy
 # 导入CodeBuddy底分型策略
 from utils.strategies.codebuddy_st_dfx import CodeBuddyStrategyDFX
+# 白马股波段策略
+from utils.strategies.value_strategy import ValueStrategy
 # 导入策略触发点位数据库管理
 from database_schema.strategy_trigger_db import StrategyTriggerDB
+import time
+
+
+# 自定义PandasData类，添加估值指标字段
+class StockDataWithMetrics(bt.feeds.PandasData):
+    lines = ('peTTM', 'psTTM', 'pcfNcfTTM', 'pbMRQ')
+    params = (
+        ('peTTM', -1),
+        ('psTTM', -1),
+        ('pcfNcfTTM', -1),
+        ('pbMRQ', -1),
+    )
 
 os.makedirs("csv", exist_ok=True)
 db_config_ = config.get_db_config()
@@ -46,14 +60,18 @@ BACKTEST_CONFIG = {
 # 本代码仅用于回测研究，实盘使用风险自担
 
 def get_stock_data_from_db(stock_code="601288", market="sh", start_date="2019-01-01"):
+    # 将开始日期向前推365个自然日，以便获取回测前的历史数据
+    start_dt = pd.to_datetime(start_date)
+    adjusted_start_date = (start_dt - pd.DateOffset(days=365)).strftime('%Y-%m-%d')
+
     # 使用SQLAlchemy连接（推荐方式）
     query = f"""
-    SELECT date, open, high, low, close, volume, amount, pctChg
-    FROM stock_daily_data 
-    WHERE market = '{market}' 
+    SELECT date, open, high, low, close, volume, amount, pctChg, peTTM, psTTM, pcfNcfTTM, pbMRQ
+    FROM stock_daily_data
+    WHERE market = '{market}'
       AND code_int = {stock_code}
       AND frequency = 'd'
-      AND date >= '{start_date}'
+      AND date >= '{adjusted_start_date}'
     ORDER BY date
     """
     df = pd.read_sql(query, engine)
@@ -285,7 +303,7 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
         cerebro.addstrategy(strategy_class)
 
         # 加载数据到回测引擎
-        data = bt.feeds.PandasData(
+        data = StockDataWithMetrics(
             dataname=df,
             datetime=None,  # 使用索引作为日期
             open='open',
@@ -293,9 +311,16 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
             low='low',
             close='close',
             volume='volume',
-            openinterest=-1  # 无持仓兴趣数据
+            openinterest=-1,  # 无持仓兴趣数据
+            peTTM='peTTM',
+            psTTM='psTTM',
+            pcfNcfTTM='pcfNcfTTM',
+            pbMRQ='pbMRQ'
         )
         cerebro.adddata(data)
+
+        # 打印数据信息用于调试
+        logger.info(f"加载数据 - 总行数: {len(df)}, 日期范围: {df.index[0]} 至 {df.index[-1]}")
 
         # 设置初始资金
         cerebro.broker.setcash(BACKTEST_CONFIG['initial_cash'])
@@ -423,6 +448,8 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
         strategy_class: 策略类
         save_to_db (bool): 是否保存触发点位到数据库
     """
+    # 记录开始时间
+    start_time = time.time()
     # 获取交易日历，过滤回测日期范围
     calendar_df = get_trade_calendar_from_db()
     start_dt = pd.to_datetime(start_date)
@@ -450,6 +477,10 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
         if result:
             all_results.append(result)
 
+    # 记录结束时间
+    end_time = time.time()
+    total_time = end_time - start_time
+
     # 保存汇总结果
     if all_results:
         summary_df = pd.DataFrame(all_results)
@@ -463,9 +494,82 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
         avg_return = summary_df['return_rate'].mean()
         avg_drawdown = summary_df['max_drawdown'].mean()
         profit_count = (summary_df['return_rate'] > 0).sum()
+        loss_count = (summary_df['return_rate'] <= 0).sum()
         logger.info(f"平均收益率: {avg_return:.2f}%")
         logger.info(f"平均最大回撤: {avg_drawdown:.2f}%")
         logger.info(f"盈利股票数: {profit_count}/{len(summary_df)}")
+        # 添加回测时间统计
+        logger.info(f"总回测时间: {total_time:.2f} 秒 ({total_time/60:.2f} 分钟)")
+        if len(all_results) > 0:
+            avg_time_per_stock = total_time / len(all_results)
+            logger.info(f"平均每只股票回测时间: {avg_time_per_stock:.2f} 秒")
+
+        # 保存汇总结果到数据库
+        try:
+            # 获取策略名称
+            strategy_name = getattr(strategy_class, 'STRATEGY_NAME', strategy_class.__name__)
+
+            # 计算汇总统计信息
+            total_trade_count = summary_df['trade_count'].sum()
+            total_profit_trade_count = summary_df['profit_trade_count'].sum()
+            total_loss_trade_count = summary_df['loss_trade_count'].sum()
+            win_rate = (total_profit_trade_count / total_trade_count * 100) if total_trade_count > 0 else 0
+            total_commission = summary_df['total_commission'].sum()
+            total_buy_commission = summary_df['buy_commission'].sum()
+            total_sell_commission = summary_df['sell_commission'].sum()
+            avg_commission_ratio = summary_df['commission_ratio'].mean()
+            max_return_rate = summary_df['return_rate'].max()
+            min_return_rate = summary_df['return_rate'].min()
+            max_sharpe_ratio = summary_df['sharpe_ratio'].max()
+            avg_sharpe_ratio = summary_df['sharpe_ratio'].mean()
+            profit_ratio = (profit_count / len(summary_df) * 100) if len(summary_df) > 0 else 0
+
+            # 构建汇总JSON数据
+            summary_json = {
+                "trading_days_count": len(calendar_df),
+                "initial_cash": BACKTEST_CONFIG['initial_cash'],
+                "commission": BACKTEST_CONFIG['commission'],
+                "slippage_perc": BACKTEST_CONFIG.get('slippage_perc', 0),
+                "avg_return_rate": round(avg_return, 2),
+                "avg_max_drawdown": round(avg_drawdown, 2),
+                "profit_stock_count": int(profit_count),
+                "loss_stock_count": int(loss_count),
+                "profit_ratio": round(profit_ratio, 2),
+                "total_trade_count": int(total_trade_count),
+                "total_profit_trade_count": int(total_profit_trade_count),
+                "total_loss_trade_count": int(total_loss_trade_count),
+                "win_rate": round(win_rate, 2),
+                "total_commission": round(total_commission, 2),
+                "total_buy_commission": round(total_buy_commission, 2),
+                "total_sell_commission": round(total_sell_commission, 2),
+                "commission_ratio": round(avg_commission_ratio, 2),
+                "max_return_rate": round(max_return_rate, 2),
+                "min_return_rate": round(min_return_rate, 2),
+                "max_sharpe_ratio": round(max_sharpe_ratio, 2),
+                "avg_sharpe_ratio": round(avg_sharpe_ratio, 2),
+                "csv_file_path": summary_file,
+                "execution_time": round(total_time, 2),
+                "avg_time_per_stock": round(avg_time_per_stock, 2) if len(all_results) > 0 else 0,
+                "created_by": "batch_backtest"
+            }
+
+            # 保存到数据库
+            strategy_db = StrategyTriggerDB()
+            strategy_db.insert_or_update_summary(
+                strategy_name=strategy_name,
+                backtest_start_date=start_date,
+                backtest_end_date=end_date,
+                summary_json=summary_json,
+                stock_count=len(all_results),
+                execution_time=total_time
+            )
+            logger.info(f"汇总结果已保存到数据库: {strategy_name} - {start_date}至{end_date}")
+
+        except Exception as e:
+            logger.error(f"保存汇总结果到数据库失败: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+
         logger.info(f"{'='*60}")
     else:
         logger.warning("没有回测结果")
@@ -481,7 +585,8 @@ if __name__ == "__main__":
         start_date=BACKTEST_CONFIG['start_date'],
         end_date=BACKTEST_CONFIG['end_date'],
         # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
-        strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
+        # strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
+        strategy_class=ValueStrategy,       # 使用Value策略
         save_to_db=True  # 设置为True保存触发点位到数据库
     )
 
@@ -489,6 +594,8 @@ if __name__ == "__main__":
     # batch_backtest(
     #     start_date=BACKTEST_CONFIG['start_date'],
     #     end_date=BACKTEST_CONFIG['end_date'],
-    #     strategy_class=CodeBuddyStrategy,
+    #     # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
+    #     strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
+    #     # strategy_class=ValueStrategy,       # 使用Value策略
     #     save_to_db=True  # 设置为True保存触发点位到数据库
     # )

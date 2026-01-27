@@ -22,6 +22,33 @@ app = Flask(__name__)
 db_manager = StrategyTriggerDB()
 reader = TriggerPointsReader()
 
+# 全局变量存储策略名称缓存
+strategies_cache = None
+strategies_cache_loaded = False
+
+
+def init_strategies_cache():
+    """
+    在应用启动时初始化策略名称缓存
+    """
+    global strategies_cache, strategies_cache_loaded
+    try:
+        print("正在初始化策略名称缓存...")
+        # 查询所有策略名称
+        results = db_manager.query_trigger_points()
+        strategies_cache = list(set([r.strategy_name for r in results if r.strategy_name]))
+        strategies_cache.sort()
+        strategies_cache_loaded = True
+        print(f"策略名称缓存加载完成，共 {len(strategies_cache)} 个策略")
+    except Exception as e:
+        print(f"策略名称缓存加载失败: {str(e)}")
+        strategies_cache = []
+        strategies_cache_loaded = True
+
+
+# 在导入模板模块前初始化缓存
+init_strategies_cache()
+
 
 def determine_market_by_code(stock_code):
     """
@@ -151,22 +178,27 @@ def get_stock_data_from_db(stock_code="601288", market="sh", buy_date="2019-01-0
 @app.route('/')
 def index():
     """主页面"""
-    return render_template('index.html')
+    # 传递缓存状态给模板
+    return render_template('index.html', strategies_loaded=strategies_cache_loaded)
 
 
 @app.route('/api/strategies')
 def get_strategies():
     """获取策略名称列表"""
     try:
-        # 查询所有策略名称
-        results = db_manager.query_trigger_points()
-        strategies = list(set([r.strategy_name for r in results if r.strategy_name]))
-        strategies.sort()
-
-        return jsonify({
-            'success': True,
-            'data': strategies
-        })
+        # 如果缓存已加载完成，直接返回缓存数据
+        if strategies_cache_loaded:
+            return jsonify({
+                'success': True,
+                'data': strategies_cache
+            })
+        else:
+            # 如果缓存未加载完成，返回空列表或等待中状态
+            return jsonify({
+                'success': True,
+                'data': [],
+                'loading': True
+            })
     except Exception as e:
         return jsonify({
             'success': False,
