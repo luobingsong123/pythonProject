@@ -34,10 +34,8 @@ def init_strategies_cache():
     global strategies_cache, strategies_cache_loaded
     try:
         print("正在初始化策略名称缓存...")
-        # 查询所有策略名称
-        results = db_manager.query_trigger_points()
-        strategies_cache = list(set([r.strategy_name for r in results if r.strategy_name]))
-        strategies_cache.sort()
+        # 从 backtest_batch_summary 表查询所有策略名称
+        strategies_cache = db_manager.get_all_strategies()
         strategies_cache_loaded = True
         print(f"策略名称缓存加载完成，共 {len(strategies_cache)} 个策略")
     except Exception as e:
