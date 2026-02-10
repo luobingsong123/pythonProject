@@ -577,11 +577,21 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
 
 if __name__ == "__main__":
     # 单只股票回测示例
-    # 使用CodeBuddy底分型策略进行回测，并保存触发点位到数据库
-    run_backtest(
-        stock_code="601288",
-        market="sh",
-        name="农业银行",
+    # # 使用CodeBuddy底分型策略进行回测，并保存触发点位到数据库
+    # run_backtest(
+    #     stock_code="601288",
+    #     market="sh",
+    #     name="农业银行",
+    #     start_date=BACKTEST_CONFIG['start_date'],
+    #     end_date=BACKTEST_CONFIG['end_date'],
+    #     # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
+    #     # strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
+    #     strategy_class=ValueStrategy,       # 使用Value策略
+    #     save_to_db=True  # 设置为True保存触发点位到数据库
+    # )
+
+    # 批量回测（保存触发点位到数据库）
+    batch_backtest(
         start_date=BACKTEST_CONFIG['start_date'],
         end_date=BACKTEST_CONFIG['end_date'],
         # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
@@ -589,13 +599,3 @@ if __name__ == "__main__":
         strategy_class=ValueStrategy,       # 使用Value策略
         save_to_db=True  # 设置为True保存触发点位到数据库
     )
-
-    # # 批量回测（保存触发点位到数据库）
-    # batch_backtest(
-    #     start_date=BACKTEST_CONFIG['start_date'],
-    #     end_date=BACKTEST_CONFIG['end_date'],
-    #     # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
-    #     strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
-    #     # strategy_class=ValueStrategy,       # 使用Value策略
-    #     save_to_db=True  # 设置为True保存触发点位到数据库
-    # )
