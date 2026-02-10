@@ -1,9 +1,10 @@
 """
 策略触发点位数据库管理模块
 用于创建和管理策略触发点位表
+以及批量回测汇总结果表
 """
 
-from sqlalchemy import create_engine, text, Column, BigInteger, String, Enum, Date, Integer, JSON, TIMESTAMP, Index, UniqueConstraint
+from sqlalchemy import create_engine, text, Column, BigInteger, String, Enum, Date, Integer, JSON, Numeric, TIMESTAMP, Index, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.engine import URL
 from baostock_tool import config
@@ -57,6 +58,41 @@ class StrategyTriggerPoints(Base):
                 f"stock_code='{self.stock_code}', market='{self.market}')>")
 
 
+class BacktestBatchSummary(Base):
+    """批量回测汇总结果表"""
+
+    __tablename__ = 'backtest_batch_summary'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
+    strategy_name = Column(String(100), nullable=False, comment='策略名称')
+    backtest_start_date = Column(Date, nullable=False, comment='回测开始日期')
+    backtest_end_date = Column(Date, nullable=False, comment='回测结束日期')
+    summary_json = Column(type_=String, nullable=False, comment='汇总结果JSON数据')
+    stock_count = Column(Integer, default=0, comment='回测股票数量')
+    execution_time = Column(Numeric(12, 4), default=0.00, comment='执行时间（秒）')
+    created_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
+    updated_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'), comment='更新时间')
+
+    # 唯一索引：同一策略、同一回测时间范围只能有一条记录
+    __table_args__ = (
+        UniqueConstraint('strategy_name', 'backtest_start_date', 'backtest_end_date',
+                        name='uk_strategy_period'),
+        Index('idx_strategy_name', 'strategy_name'),
+        Index('idx_backtest_period', 'backtest_start_date', 'backtest_end_date'),
+        Index('idx_created_at', 'created_at'),
+        {
+            'mysql_charset': 'utf8mb4',
+            'mysql_collate': 'utf8mb4_unicode_ci',
+            'comment': '批量回测汇总结果表'
+        }
+    )
+
+    def __repr__(self):
+        return (f"<BacktestBatchSummary(strategy_name='{self.strategy_name}', "
+                f"backtest_start_date='{self.backtest_start_date}', "
+                f"backtest_end_date='{self.backtest_end_date}')>")
+
+
 class StrategyTriggerDB:
     """策略触发点位数据库管理类"""
 
@@ -74,9 +110,34 @@ class StrategyTriggerDB:
         )
         self.engine = create_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
 
+    def create_tables(self, drop_existing=False):
+        """
+        创建所有表（策略触发点位表和批量回测汇总结果表）
+
+        Args:
+            drop_existing (bool): 是否删除已存在的表（慎用）
+
+        Returns:
+            bool: 是否成功创建
+        """
+        try:
+            if drop_existing:
+                BacktestBatchSummary.__table__.drop(self.engine, checkfirst=True)
+                StrategyTriggerPoints.__table__.drop(self.engine, checkfirst=True)
+                logger.debug("已删除旧表")
+
+            # 创建表（先创建没有外键的表）
+            StrategyTriggerPoints.__table__.create(self.engine, checkfirst=True)
+            BacktestBatchSummary.__table__.create(self.engine, checkfirst=True)
+            logger.debug("所有表创建成功")
+            return True
+        except Exception as e:
+            logger.debug(f"创建表失败: {str(e)}")
+            return False
+
     def create_table(self, drop_existing=False):
         """
-        创建策略触发点位表
+        创建策略触发点位表（保留方法以兼容旧代码）
 
         Args:
             drop_existing (bool): 是否删除已存在的表（慎用）
@@ -259,15 +320,253 @@ class StrategyTriggerDB:
             logger.debug(f"获取统计信息失败: {str(e)}")
             return {}
 
+    # ============ 批量回测汇总结果相关方法 ============
+
+    def insert_or_update_summary(self, strategy_name, backtest_start_date, backtest_end_date,
+                                 summary_json, stock_count=0, execution_time=0.0):
+        """
+        插入或更新批量回测汇总结果
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期 (YYYY-MM-DD)
+            backtest_end_date (str): 回测结束日期 (YYYY-MM-DD)
+            summary_json (dict/list/str): 汇总结果JSON数据（字典、列表或JSON字符串）
+            stock_count (int): 回测股票数量
+            execution_time (float): 执行时间（秒）
+
+        Returns:
+            bool: 是否成功插入或更新
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            import json
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            # 转换summary_json为JSON字符串
+            if isinstance(summary_json, (dict, list)):
+                summary_json_str = json.dumps(summary_json, ensure_ascii=False)
+            else:
+                summary_json_str = str(summary_json)
+
+            # 检查是否已存在相同记录
+            existing = session.query(BacktestBatchSummary).filter(
+                BacktestBatchSummary.strategy_name == strategy_name,
+                BacktestBatchSummary.backtest_start_date == backtest_start_date,
+                BacktestBatchSummary.backtest_end_date == backtest_end_date
+            ).first()
+
+            if existing:
+                # 更新现有记录
+                existing.summary_json = summary_json_str
+                existing.stock_count = stock_count
+                existing.execution_time = execution_time
+                session.commit()
+                logger.debug(f"更新批量回测汇总成功: {strategy_name} - {backtest_start_date}至{backtest_end_date}")
+            else:
+                # 插入新记录
+                new_record = BacktestBatchSummary(
+                    strategy_name=strategy_name,
+                    backtest_start_date=backtest_start_date,
+                    backtest_end_date=backtest_end_date,
+                    summary_json=summary_json_str,
+                    stock_count=stock_count,
+                    execution_time=execution_time
+                )
+                session.add(new_record)
+                session.commit()
+                logger.debug(f"插入批量回测汇总成功: {strategy_name} - {backtest_start_date}至{backtest_end_date}")
+
+            session.close()
+            return True
+        except Exception as e:
+            logger.debug(f"插入或更新汇总结果失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def query_summary(self, strategy_name=None, backtest_start_date=None, backtest_end_date=None):
+        """
+        查询批量回测汇总结果
+
+        Args:
+            strategy_name (str, optional): 策略名称
+            backtest_start_date (str, optional): 回测开始日期
+            backtest_end_date (str, optional): 回测结束日期
+
+        Returns:
+            list: 查询结果列表
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            query = session.query(BacktestBatchSummary)
+
+            if strategy_name:
+                query = query.filter(BacktestBatchSummary.strategy_name == strategy_name)
+            if backtest_start_date:
+                query = query.filter(BacktestBatchSummary.backtest_start_date >= backtest_start_date)
+            if backtest_end_date:
+                query = query.filter(BacktestBatchSummary.backtest_end_date <= backtest_end_date)
+
+            results = query.order_by(BacktestBatchSummary.created_at.desc()).all()
+            session.close()
+            return results
+        except Exception as e:
+            logger.debug(f"查询汇总结果失败: {str(e)}")
+            return []
+
+    def get_summary(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        获取指定策略和时间段的汇总结果
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            BacktestBatchSummary: 汇总结果对象，不存在则返回None
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            result = session.query(BacktestBatchSummary).filter(
+                BacktestBatchSummary.strategy_name == strategy_name,
+                BacktestBatchSummary.backtest_start_date == backtest_start_date,
+                BacktestBatchSummary.backtest_end_date == backtest_end_date
+            ).first()
+
+            session.close()
+            return result
+        except Exception as e:
+            logger.debug(f"获取汇总结果失败: {str(e)}")
+            return None
+
+    def delete_summary(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        删除指定策略和时间段的汇总结果
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            bool: 是否删除成功
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            count = session.query(BacktestBatchSummary).filter(
+                BacktestBatchSummary.strategy_name == strategy_name,
+                BacktestBatchSummary.backtest_start_date == backtest_start_date,
+                BacktestBatchSummary.backtest_end_date == backtest_end_date
+            ).delete()
+
+            session.commit()
+            session.close()
+            logger.debug(f"删除汇总结果: {count} 条记录")
+            return count > 0
+        except Exception as e:
+            logger.debug(f"删除汇总结果失败: {str(e)}")
+            return False
+
+    def exists_summary(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        检查是否存在指定策略和时间段的汇总结果
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            bool: 是否存在
+        """
+        return self.get_summary(strategy_name, backtest_start_date, backtest_end_date) is not None
+
+    def get_all_strategies(self):
+        """
+        获取所有策略名称列表
+
+        Returns:
+            list: 策略名称列表
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy import func
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            strategies = session.query(
+                func.distinct(BacktestBatchSummary.strategy_name)
+            ).order_by(BacktestBatchSummary.strategy_name).all()
+
+            session.close()
+            return [s[0] for s in strategies]
+        except Exception as e:
+            logger.debug(f"获取策略列表失败: {str(e)}")
+            return []
+
+    def get_summary_statistics(self):
+        """
+        获取批量回测汇总统计信息
+
+        Returns:
+            dict: 统计信息字典
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy import func
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            # 总回测批次数
+            total_batches = session.query(func.count(BacktestBatchSummary.id)).scalar()
+
+            # 策略数量
+            strategy_count = session.query(
+                func.count(func.distinct(BacktestBatchSummary.strategy_name))
+            ).scalar()
+
+            # 总回测股票数
+            total_stocks = session.query(func.sum(BacktestBatchSummary.stock_count)).scalar() or 0
+
+            # 总执行时间
+            total_time = session.query(func.sum(BacktestBatchSummary.execution_time)).scalar() or 0
+
+            session.close()
+
+            return {
+                'total_batches': total_batches,
+                'strategy_count': strategy_count,
+                'total_stocks': total_stocks,
+                'total_time': float(total_time)
+            }
+        except Exception as e:
+            logger.debug(f"获取汇总统计信息失败: {str(e)}")
+            return {}
+
 
 # 使用示例
 if __name__ == "__main__":
+    import json
+
     # 创建数据库管理实例
     db = StrategyTriggerDB()
 
-    # 创建表（首次运行时使用）
-    # db.create_table(drop_existing=False)
+    # 创建所有表（首次运行时使用）
+    # db.create_tables(drop_existing=False)
 
+    # ========== 策略触发点位示例 ==========
     # 插入示例数据
     trigger_data = [
         {
@@ -303,4 +602,70 @@ if __name__ == "__main__":
 
     # 获取统计信息
     stats = db.get_statistics()
-    logger.debug(f"\n统计信息: {stats}")
+    logger.debug(f"\n策略触发点位统计信息: {stats}")
+
+    # ========== 批量回测汇总示例 ==========
+    # 示例：构建汇总JSON数据
+    summary_json = {
+        "trading_days_count": 1200,
+        "initial_cash": 100000,
+        "commission": 0.001,
+        "slippage_perc": 0.001,
+        "avg_return_rate": 5.23,
+        "avg_max_drawdown": 8.45,
+        "profit_stock_count": 650,
+        "loss_stock_count": 350,
+        "profit_ratio": 65.0,
+        "total_trade_count": 15000,
+        "total_profit_trade_count": 8500,
+        "total_loss_trade_count": 6500,
+        "win_rate": 56.67,
+        "total_commission": 2500000.00,
+        "total_buy_commission": 1250000.00,
+        "total_sell_commission": 1250000.00,
+        "commission_ratio": 2.50,
+        "max_return_rate": 35.50,
+        "min_return_rate": -15.20,
+        "max_sharpe_ratio": 1.85,
+        "avg_sharpe_ratio": 0.85,
+        "csv_file_path": "csv/backtest_summary_20200101_to_20251220.csv",
+        "execution_time": 3600.5,
+        "avg_time_per_stock": 3.6005,
+        "created_at": "2024-01-22 10:30:00",
+        "created_by": "batch_backtest"
+    }
+
+    # 插入或更新汇总结果
+    db.insert_or_update_summary(
+        strategy_name="CodeBuddyStrategyDFX",
+        backtest_start_date="2020-01-01",
+        backtest_end_date="2025-12-20",
+        summary_json=summary_json,
+        stock_count=1000,
+        execution_time=3600.5
+    )
+
+    # 查询汇总结果
+    summary_results = db.query_summary(strategy_name="CodeBuddyStrategyDFX")
+    for result in summary_results:
+        logger.debug(f"策略: {result.strategy_name}")
+        logger.debug(f"回测期间: {result.backtest_start_date} 至 {result.backtest_end_date}")
+        logger.debug(f"股票数量: {result.stock_count}")
+        logger.debug(f"执行时间: {result.execution_time} 秒")
+        # 解析JSON数据
+        summary_data = json.loads(result.summary_json)
+        logger.debug(f"平均收益率: {summary_data.get('avg_return_rate')}%")
+        logger.debug(f"盈利占比: {summary_data.get('profit_ratio')}%")
+        logger.debug("-" * 60)
+
+    # 检查是否存在
+    exists = db.exists_summary("CodeBuddyStrategyDFX", "2020-01-01", "2025-12-20")
+    logger.debug(f"是否存在该汇总记录: {exists}")
+
+    # 获取所有策略
+    strategies = db.get_all_strategies()
+    logger.debug(f"所有策略: {strategies}")
+
+    # 获取汇总统计信息
+    summary_stats = db.get_summary_statistics()
+    logger.debug(f"汇总统计信息: {summary_stats}")
