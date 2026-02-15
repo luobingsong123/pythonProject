@@ -561,7 +561,8 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
                 backtest_end_date=end_date,
                 summary_json=summary_json,
                 stock_count=len(all_results),
-                execution_time=total_time
+                execution_time=total_time,
+                backtest_framework='backtrader'
             )
             logger.info(f"汇总结果已保存到数据库: {strategy_name} - {start_date}至{end_date}")
 
@@ -595,7 +596,7 @@ if __name__ == "__main__":
         start_date=BACKTEST_CONFIG['start_date'],
         end_date=BACKTEST_CONFIG['end_date'],
         # strategy_class=CodeBuddyStrategyDFX,    # 使用CodeBuddy底分型策略
-        # strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
-        strategy_class=ValueStrategy,       # 使用Value策略
+        strategy_class=CodeBuddyStrategy,    #  使用CodeBuddy策略
+        # strategy_class=ValueStrategy,       # 使用Value策略
         save_to_db=True  # 设置为True保存触发点位到数据库
     )

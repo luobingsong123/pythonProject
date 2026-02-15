@@ -67,18 +67,20 @@ class BacktestBatchSummary(Base):
     strategy_name = Column(String(100), nullable=False, comment='策略名称')
     backtest_start_date = Column(Date, nullable=False, comment='回测开始日期')
     backtest_end_date = Column(Date, nullable=False, comment='回测结束日期')
+    backtest_framework = Column(String(50), nullable=False, default='backtrader', comment='回测框架：backtrader, time_based')
     summary_json = Column(type_=String, nullable=False, comment='汇总结果JSON数据')
     stock_count = Column(Integer, default=0, comment='回测股票数量')
     execution_time = Column(Numeric(12, 4), default=0.00, comment='执行时间（秒）')
     created_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
     updated_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'), comment='更新时间')
 
-    # 唯一索引：同一策略、同一回测时间范围只能有一条记录
+    # 唯一索引：同一策略、同一回测时间范围、同一回测框架只能有一条记录
     __table_args__ = (
-        UniqueConstraint('strategy_name', 'backtest_start_date', 'backtest_end_date',
-                        name='uk_strategy_period'),
+        UniqueConstraint('strategy_name', 'backtest_start_date', 'backtest_end_date', 'backtest_framework',
+                        name='uk_strategy_period_framework'),
         Index('idx_strategy_name', 'strategy_name'),
         Index('idx_backtest_period', 'backtest_start_date', 'backtest_end_date'),
+        Index('idx_backtest_framework', 'backtest_framework'),
         Index('idx_created_at', 'created_at'),
         {
             'mysql_charset': 'utf8mb4',
@@ -91,6 +93,43 @@ class BacktestBatchSummary(Base):
         return (f"<BacktestBatchSummary(strategy_name='{self.strategy_name}', "
                 f"backtest_start_date='{self.backtest_start_date}', "
                 f"backtest_end_date='{self.backtest_end_date}')>")
+
+
+class BacktestDailyRecords(Base):
+    """回测每日记录表"""
+
+    __tablename__ = 'backtest_daily_records'
+
+    strategy_name = Column(String(100), primary_key=True, nullable=False, comment='策略名称')
+    backtest_start_date = Column(Date, primary_key=True, nullable=False, comment='回测开始日期')
+    backtest_end_date = Column(Date, primary_key=True, nullable=False, comment='回测结束日期')
+    trade_date = Column(Date, primary_key=True, nullable=False, comment='交易日期')
+    buy_count = Column(Integer, default=0, comment='当日买入次数')
+    sell_count = Column(Integer, default=0, comment='当日卖出次数')
+    is_no_action = Column(Integer, default=0, comment='是否无操作(0:有操作, 1:无操作)')
+    total_asset = Column(Numeric(15, 2), comment='当日总资产')
+    profit_rate = Column(Numeric(10, 4), comment='当日盈亏比例(%)')
+    cash = Column(Numeric(15, 2), comment='当日现金')
+    position_count = Column(Integer, default=0, comment='当日持仓数量')
+    max_positions = Column(Integer, default=5, comment='最大持仓限制')
+    position_detail = Column(String, comment='持仓详情(JSON格式)')
+    created_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
+    updated_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'), comment='更新时间')
+
+    __table_args__ = (
+        Index('idx_strategy_period', 'strategy_name', 'backtest_start_date', 'backtest_end_date'),
+        Index('idx_trade_date', 'trade_date'),
+        Index('idx_created_at', 'created_at'),
+        {
+            'mysql_charset': 'utf8mb4',
+            'mysql_collate': 'utf8mb4_unicode_ci',
+            'comment': '回测每日记录表'
+        }
+    )
+
+    def __repr__(self):
+        return (f"<BacktestDailyRecords(strategy_name='{self.strategy_name}', "
+                f"trade_date='{self.trade_date}', buy_count={self.buy_count}, sell_count={self.sell_count})>")
 
 
 class StrategyTriggerDB:
@@ -323,7 +362,7 @@ class StrategyTriggerDB:
     # ============ 批量回测汇总结果相关方法 ============
 
     def insert_or_update_summary(self, strategy_name, backtest_start_date, backtest_end_date,
-                                 summary_json, stock_count=0, execution_time=0.0):
+                                 summary_json, stock_count=0, execution_time=0.0, backtest_framework='backtrader'):
         """
         插入或更新批量回测汇总结果
 
@@ -334,6 +373,7 @@ class StrategyTriggerDB:
             summary_json (dict/list/str): 汇总结果JSON数据（字典、列表或JSON字符串）
             stock_count (int): 回测股票数量
             execution_time (float): 执行时间（秒）
+            backtest_framework (str): 回测框架类型，默认为'backtrader'，可选'time_based'
 
         Returns:
             bool: 是否成功插入或更新
@@ -341,12 +381,24 @@ class StrategyTriggerDB:
         try:
             from sqlalchemy.orm import sessionmaker
             import json
+            import numpy as np
             Session = sessionmaker(bind=self.engine)
             session = Session()
 
+            # 自定义JSON编码器，处理numpy/pandas类型
+            class NumpyEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    if isinstance(obj, (np.integer, np.int64, np.int32)):
+                        return int(obj)
+                    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+                        return float(obj)
+                    elif isinstance(obj, np.ndarray):
+                        return obj.tolist()
+                    return super().default(obj)
+
             # 转换summary_json为JSON字符串
             if isinstance(summary_json, (dict, list)):
-                summary_json_str = json.dumps(summary_json, ensure_ascii=False)
+                summary_json_str = json.dumps(summary_json, ensure_ascii=False, cls=NumpyEncoder)
             else:
                 summary_json_str = str(summary_json)
 
@@ -354,7 +406,8 @@ class StrategyTriggerDB:
             existing = session.query(BacktestBatchSummary).filter(
                 BacktestBatchSummary.strategy_name == strategy_name,
                 BacktestBatchSummary.backtest_start_date == backtest_start_date,
-                BacktestBatchSummary.backtest_end_date == backtest_end_date
+                BacktestBatchSummary.backtest_end_date == backtest_end_date,
+                BacktestBatchSummary.backtest_framework == backtest_framework
             ).first()
 
             if existing:
@@ -363,20 +416,21 @@ class StrategyTriggerDB:
                 existing.stock_count = stock_count
                 existing.execution_time = execution_time
                 session.commit()
-                logger.debug(f"更新批量回测汇总成功: {strategy_name} - {backtest_start_date}至{backtest_end_date}")
+                logger.debug(f"更新批量回测汇总成功: {strategy_name} - {backtest_start_date}至{backtest_end_date} - {backtest_framework}")
             else:
                 # 插入新记录
                 new_record = BacktestBatchSummary(
                     strategy_name=strategy_name,
                     backtest_start_date=backtest_start_date,
                     backtest_end_date=backtest_end_date,
+                    backtest_framework=backtest_framework,
                     summary_json=summary_json_str,
                     stock_count=stock_count,
                     execution_time=execution_time
                 )
                 session.add(new_record)
                 session.commit()
-                logger.debug(f"插入批量回测汇总成功: {strategy_name} - {backtest_start_date}至{backtest_end_date}")
+                logger.debug(f"插入批量回测汇总成功: {strategy_name} - {backtest_start_date}至{backtest_end_date} - {backtest_framework}")
 
             session.close()
             return True
@@ -386,7 +440,7 @@ class StrategyTriggerDB:
             traceback.print_exc()
             return False
 
-    def query_summary(self, strategy_name=None, backtest_start_date=None, backtest_end_date=None):
+    def query_summary(self, strategy_name=None, backtest_start_date=None, backtest_end_date=None, backtest_framework=None):
         """
         查询批量回测汇总结果
 
@@ -394,6 +448,7 @@ class StrategyTriggerDB:
             strategy_name (str, optional): 策略名称
             backtest_start_date (str, optional): 回测开始日期
             backtest_end_date (str, optional): 回测结束日期
+            backtest_framework (str, optional): 回测框架类型
 
         Returns:
             list: 查询结果列表
@@ -411,6 +466,8 @@ class StrategyTriggerDB:
                 query = query.filter(BacktestBatchSummary.backtest_start_date >= backtest_start_date)
             if backtest_end_date:
                 query = query.filter(BacktestBatchSummary.backtest_end_date <= backtest_end_date)
+            if backtest_framework:
+                query = query.filter(BacktestBatchSummary.backtest_framework == backtest_framework)
 
             results = query.order_by(BacktestBatchSummary.created_at.desc()).all()
             session.close()
@@ -419,7 +476,7 @@ class StrategyTriggerDB:
             logger.debug(f"查询汇总结果失败: {str(e)}")
             return []
 
-    def get_summary(self, strategy_name, backtest_start_date, backtest_end_date):
+    def get_summary(self, strategy_name, backtest_start_date, backtest_end_date, backtest_framework='backtrader'):
         """
         获取指定策略和时间段的汇总结果
 
@@ -427,6 +484,7 @@ class StrategyTriggerDB:
             strategy_name (str): 策略名称
             backtest_start_date (str): 回测开始日期
             backtest_end_date (str): 回测结束日期
+            backtest_framework (str): 回测框架类型，默认为'backtrader'
 
         Returns:
             BacktestBatchSummary: 汇总结果对象，不存在则返回None
@@ -439,7 +497,8 @@ class StrategyTriggerDB:
             result = session.query(BacktestBatchSummary).filter(
                 BacktestBatchSummary.strategy_name == strategy_name,
                 BacktestBatchSummary.backtest_start_date == backtest_start_date,
-                BacktestBatchSummary.backtest_end_date == backtest_end_date
+                BacktestBatchSummary.backtest_end_date == backtest_end_date,
+                BacktestBatchSummary.backtest_framework == backtest_framework
             ).first()
 
             session.close()
@@ -448,7 +507,7 @@ class StrategyTriggerDB:
             logger.debug(f"获取汇总结果失败: {str(e)}")
             return None
 
-    def delete_summary(self, strategy_name, backtest_start_date, backtest_end_date):
+    def delete_summary(self, strategy_name, backtest_start_date, backtest_end_date, backtest_framework='backtrader'):
         """
         删除指定策略和时间段的汇总结果
 
@@ -456,6 +515,7 @@ class StrategyTriggerDB:
             strategy_name (str): 策略名称
             backtest_start_date (str): 回测开始日期
             backtest_end_date (str): 回测结束日期
+            backtest_framework (str): 回测框架类型，默认为'backtrader'
 
         Returns:
             bool: 是否删除成功
@@ -468,7 +528,8 @@ class StrategyTriggerDB:
             count = session.query(BacktestBatchSummary).filter(
                 BacktestBatchSummary.strategy_name == strategy_name,
                 BacktestBatchSummary.backtest_start_date == backtest_start_date,
-                BacktestBatchSummary.backtest_end_date == backtest_end_date
+                BacktestBatchSummary.backtest_end_date == backtest_end_date,
+                BacktestBatchSummary.backtest_framework == backtest_framework
             ).delete()
 
             session.commit()
@@ -479,7 +540,7 @@ class StrategyTriggerDB:
             logger.debug(f"删除汇总结果失败: {str(e)}")
             return False
 
-    def exists_summary(self, strategy_name, backtest_start_date, backtest_end_date):
+    def exists_summary(self, strategy_name, backtest_start_date, backtest_end_date, backtest_framework='backtrader'):
         """
         检查是否存在指定策略和时间段的汇总结果
 
@@ -487,11 +548,12 @@ class StrategyTriggerDB:
             strategy_name (str): 策略名称
             backtest_start_date (str): 回测开始日期
             backtest_end_date (str): 回测结束日期
+            backtest_framework (str): 回测框架类型，默认为'backtrader'
 
         Returns:
             bool: 是否存在
         """
-        return self.get_summary(strategy_name, backtest_start_date, backtest_end_date) is not None
+        return self.get_summary(strategy_name, backtest_start_date, backtest_end_date, backtest_framework) is not None
 
     def get_all_strategies(self):
         """
@@ -553,6 +615,250 @@ class StrategyTriggerDB:
             }
         except Exception as e:
             logger.debug(f"获取汇总统计信息失败: {str(e)}")
+            return {}
+
+    # ============ 回测每日记录相关方法 ============
+
+    def insert_daily_record(self, strategy_name, backtest_start_date, backtest_end_date,
+                           trade_date, buy_count=0, sell_count=0, is_no_action=0,
+                           total_asset=None, profit_rate=None, cash=None,
+                           position_count=0, max_positions=5, position_detail=None):
+        """
+        插入单条回测每日记录
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期 (YYYY-MM-DD)
+            backtest_end_date (str): 回测结束日期 (YYYY-MM-DD)
+            trade_date (str): 交易日期 (YYYY-MM-DD)
+            buy_count (int): 当日买入次数
+            sell_count (int): 当日卖出次数
+            is_no_action (int): 是否无操作(0:有操作, 1:无操作)
+            total_asset (float): 当日总资产
+            profit_rate (float): 当日盈亏比例(%)
+            cash (float): 当日现金
+            position_count (int): 当日持仓数量
+            max_positions (int): 最大持仓限制
+            position_detail (list/dict/str): 持仓详情(JSON格式)
+
+        Returns:
+            bool: 是否成功插入或更新
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            import json
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            # 转换position_detail为JSON字符串
+            if isinstance(position_detail, (dict, list)):
+                position_detail_str = json.dumps(position_detail, ensure_ascii=False)
+            elif position_detail is None:
+                position_detail_str = None
+            else:
+                position_detail_str = str(position_detail)
+
+            # 检查是否已存在相同记录（使用复合主键查询）
+            existing = session.query(BacktestDailyRecords).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date,
+                BacktestDailyRecords.trade_date == trade_date
+            ).first()
+
+            if existing:
+                # 更新现有记录
+                existing.buy_count = buy_count
+                existing.sell_count = sell_count
+                existing.is_no_action = is_no_action
+                existing.total_asset = total_asset
+                existing.profit_rate = profit_rate
+                existing.cash = cash
+                existing.position_count = position_count
+                existing.max_positions = max_positions
+                existing.position_detail = position_detail_str
+                session.commit()
+                logger.debug(f"更新每日记录: {strategy_name} - {trade_date}")
+            else:
+                # 插入新记录
+                new_record = BacktestDailyRecords(
+                    strategy_name=strategy_name,
+                    backtest_start_date=backtest_start_date,
+                    backtest_end_date=backtest_end_date,
+                    trade_date=trade_date,
+                    buy_count=buy_count,
+                    sell_count=sell_count,
+                    is_no_action=is_no_action,
+                    total_asset=total_asset,
+                    profit_rate=profit_rate,
+                    cash=cash,
+                    position_count=position_count,
+                    max_positions=max_positions,
+                    position_detail=position_detail_str
+                )
+                session.add(new_record)
+                session.commit()
+                logger.debug(f"插入每日记录: {strategy_name} - {trade_date}")
+
+            session.close()
+            return True
+        except Exception as e:
+            logger.error(f"插入每日记录失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def batch_insert_daily_records(self, records):
+        """
+        批量插入回测每日记录
+
+        Args:
+            records (list): 记录列表，每条记录为字典格式
+
+        Returns:
+            tuple: (成功数量, 失败数量)
+        """
+        success_count = 0
+        fail_count = 0
+
+        for record in records:
+            result = self.insert_daily_record(**record)
+            if result:
+                success_count += 1
+            else:
+                fail_count += 1
+
+        logger.info(f"批量插入每日记录完成: 成功 {success_count} 条, 失败 {fail_count} 条")
+        return success_count, fail_count
+
+    def query_daily_records(self, strategy_name, backtest_start_date, backtest_end_date,
+                           start_trade_date=None, end_trade_date=None):
+        """
+        查询回测每日记录
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+            start_trade_date (str, optional): 查询起始交易日期
+            end_trade_date (str, optional): 查询结束交易日期
+
+        Returns:
+            list: 查询结果列表
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            query = session.query(BacktestDailyRecords).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date
+            )
+
+            if start_trade_date:
+                query = query.filter(BacktestDailyRecords.trade_date >= start_trade_date)
+            if end_trade_date:
+                query = query.filter(BacktestDailyRecords.trade_date <= end_trade_date)
+
+            results = query.order_by(BacktestDailyRecords.trade_date).all()
+            session.close()
+            return results
+        except Exception as e:
+            logger.error(f"查询每日记录失败: {str(e)}")
+            return []
+
+    def delete_daily_records(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        删除指定策略和时间段的每日记录
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            int: 删除的记录数量
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            count = session.query(BacktestDailyRecords).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date
+            ).delete()
+
+            session.commit()
+            session.close()
+            logger.info(f"删除每日记录: {count} 条")
+            return count
+        except Exception as e:
+            logger.error(f"删除每日记录失败: {str(e)}")
+            return 0
+
+    def get_daily_records_statistics(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        获取指定回测的每日记录统计信息
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            dict: 统计信息字典
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy import func
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            # 总交易日数
+            total_days = session.query(func.count(BacktestDailyRecords.trade_date)).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date
+            ).scalar() or 0
+
+            # 无操作天数
+            no_action_days = session.query(func.count(BacktestDailyRecords.trade_date)).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date,
+                BacktestDailyRecords.is_no_action == 1
+            ).scalar() or 0
+
+            # 总买入次数
+            total_buys = session.query(func.sum(BacktestDailyRecords.buy_count)).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date
+            ).scalar() or 0
+
+            # 总卖出次数
+            total_sells = session.query(func.sum(BacktestDailyRecords.sell_count)).filter(
+                BacktestDailyRecords.strategy_name == strategy_name,
+                BacktestDailyRecords.backtest_start_date == backtest_start_date,
+                BacktestDailyRecords.backtest_end_date == backtest_end_date
+            ).scalar() or 0
+
+            session.close()
+
+            return {
+                'total_days': total_days,
+                'no_action_days': no_action_days,
+                'action_days': total_days - no_action_days,
+                'total_buys': int(total_buys),
+                'total_sells': int(total_sells),
+                'action_ratio': round((total_days - no_action_days) / total_days * 100, 2) if total_days > 0 else 0
+            }
+        except Exception as e:
+            logger.error(f"获取每日记录统计信息失败: {str(e)}")
             return {}
 
 

@@ -23,36 +23,66 @@ CREATE TABLE `stock_basic_info` (
 
 
 -- baostock_api_market_data.stock_daily_data definition
-
 CREATE TABLE `stock_daily_data` (
-  `date` date NOT NULL COMMENT '交易所行情日期',
-  `market` varchar(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳',
-  `code_int` int(10) unsigned NOT NULL COMMENT '6位数字股票代码',
-  `frequency` char(1) NOT NULL DEFAULT 'd' COMMENT '频率：d=日, w=周, m=月',
-  `open` decimal(10,4) NOT NULL COMMENT '开盘价',
-  `high` decimal(10,4) NOT NULL COMMENT '最高价',
-  `low` decimal(10,4) NOT NULL COMMENT '最低价',
-  `close` decimal(10,4) NOT NULL COMMENT '收盘价',
-  `preclose` decimal(10,6) DEFAULT NULL,
-  `volume` bigint(20) DEFAULT NULL COMMENT '成交量(股)',
-  `amount` decimal(15,4) DEFAULT NULL COMMENT '成交额(元)',
-  `adjustflag` tinyint(4) NOT NULL DEFAULT 3 COMMENT '复权状态：1=后复权, 2=前复权, 3=不复权',
-  `turn` decimal(10,6) DEFAULT NULL,
-  `tradestatus` tinyint(4) DEFAULT 1 COMMENT '交易状态：1=正常交易, 0=停牌',
-  `pctChg` decimal(10,6) DEFAULT NULL,
-  `peTTM` decimal(10,6) DEFAULT NULL COMMENT '滚动市盈率',
-  `psTTM` decimal(10,6) DEFAULT NULL COMMENT '滚动市销率',
-  `pcfNcfTTM` decimal(10,6) DEFAULT NULL COMMENT '滚动市现率',
-  `pbMRQ` decimal(10,6) DEFAULT NULL COMMENT '市净率',
-  `isST` tinyint(4) DEFAULT 0 COMMENT '是否ST股：1=是, 0=否',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `date` DATE NOT NULL COMMENT '交易所行情日期',
+  `market` VARCHAR(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳',
+  `code_int` INT(10) UNSIGNED NOT NULL COMMENT '6位数字股票代码',
+  `frequency` CHAR(1) NOT NULL DEFAULT 'd' COMMENT '频率：d=日, w=周, m=月',
+  `open` DECIMAL(12,2) NOT NULL COMMENT '开盘价',
+  `high` DECIMAL(12,2) NOT NULL COMMENT '最高价',
+  `low` DECIMAL(12,2) NOT NULL COMMENT '最低价',
+  `close` DECIMAL(12,2) NOT NULL COMMENT '收盘价',
+  `preclose` DECIMAL(12,2) DEFAULT NULL COMMENT '前收盘价(元)',
+  `volume` BIGINT(20) DEFAULT NULL COMMENT '成交量(股)',
+  `amount` DECIMAL(17,2) DEFAULT NULL COMMENT '成交额(元)',
+  `adjustflag` TINYINT(4) NOT NULL DEFAULT 3 COMMENT '复权状态：1=后复权, 2=前复权, 3=不复权',
+  `turn` DECIMAL(8,2) DEFAULT NULL COMMENT '换手率(%)',
+  `tradestatus` TINYINT(4) DEFAULT 1 COMMENT '交易状态：1=正常交易, 0=停牌',
+  `pctChg` DECIMAL(8,2) DEFAULT NULL COMMENT '涨跌幅(%)',
+  `peTTM` DECIMAL(8,2) DEFAULT NULL COMMENT '滚动市盈率',
+  `psTTM` DECIMAL(8,2) DEFAULT NULL COMMENT '滚动市销率',
+  `pcfNcfTTM` DECIMAL(8,2) DEFAULT NULL COMMENT '滚动市现率',
+  `pbMRQ` DECIMAL(8,2) DEFAULT NULL COMMENT '市净率',
+  `isST` TINYINT(4) DEFAULT 0 COMMENT '是否ST股：1=是, 0=否',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE CURRENT_TIMESTAMP(),
   PRIMARY KEY (`date`,`market`,`code_int`,`frequency`),
-  KEY `idx_market_code` (`market`,`code_int`),
-  KEY `idx_code` (`code_int`),
-  KEY `idx_date` (`date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='A股日线/周线/月线数据';
-
+  KEY `idx_market_code_date` (`market`,`code_int`,`date`),
+  KEY `idx_code_date` (`code_int`,`date`),
+  KEY `idx_frequency_date` (`frequency`,`date`)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4
+COMMENT='A股日线/周线/月线数据（按年分区）'
+PARTITION BY RANGE (TO_DAYS(`date`)) (
+  PARTITION p1999 VALUES LESS THAN (TO_DAYS('2000-01-01')),
+  PARTITION p2000 VALUES LESS THAN (TO_DAYS('2001-01-01')),
+  PARTITION p2001 VALUES LESS THAN (TO_DAYS('2002-01-01')),
+  PARTITION p2002 VALUES LESS THAN (TO_DAYS('2003-01-01')),
+  PARTITION p2003 VALUES LESS THAN (TO_DAYS('2004-01-01')),
+  PARTITION p2004 VALUES LESS THAN (TO_DAYS('2005-01-01')),
+  PARTITION p2005 VALUES LESS THAN (TO_DAYS('2006-01-01')),
+  PARTITION p2006 VALUES LESS THAN (TO_DAYS('2007-01-01')),
+  PARTITION p2007 VALUES LESS THAN (TO_DAYS('2008-01-01')),
+  PARTITION p2008 VALUES LESS THAN (TO_DAYS('2009-01-01')),
+  PARTITION p2009 VALUES LESS THAN (TO_DAYS('2010-01-01')),
+  PARTITION p2010 VALUES LESS THAN (TO_DAYS('2011-01-01')),
+  PARTITION p2011 VALUES LESS THAN (TO_DAYS('2012-01-01')),
+  PARTITION p2012 VALUES LESS THAN (TO_DAYS('2013-01-01')),
+  PARTITION p2013 VALUES LESS THAN (TO_DAYS('2014-01-01')),
+  PARTITION p2014 VALUES LESS THAN (TO_DAYS('2015-01-01')),
+  PARTITION p2015 VALUES LESS THAN (TO_DAYS('2016-01-01')),
+  PARTITION p2016 VALUES LESS THAN (TO_DAYS('2017-01-01')),
+  PARTITION p2017 VALUES LESS THAN (TO_DAYS('2018-01-01')),
+  PARTITION p2018 VALUES LESS THAN (TO_DAYS('2019-01-01')),
+  PARTITION p2019 VALUES LESS THAN (TO_DAYS('2020-01-01')),
+  PARTITION p2020 VALUES LESS THAN (TO_DAYS('2021-01-01')),
+  PARTITION p2021 VALUES LESS THAN (TO_DAYS('2022-01-01')),
+  PARTITION p2022 VALUES LESS THAN (TO_DAYS('2023-01-01')),
+  PARTITION p2023 VALUES LESS THAN (TO_DAYS('2024-01-01')),
+  PARTITION p2024 VALUES LESS THAN (TO_DAYS('2025-01-01')),
+  PARTITION p2025 VALUES LESS THAN (TO_DAYS('2026-01-01')),
+  PARTITION p2026 VALUES LESS THAN (TO_DAYS('2027-01-01')),
+  PARTITION p_future VALUES LESS THAN MAXVALUE
+);
 
 -- baostock_api_market_data.stock_minute_data definition
 
@@ -243,3 +273,53 @@ CREATE TABLE backtest_trades (
     INDEX idx_date_type (trade_date, trade_type),
     FOREIGN KEY (backtest_id) REFERENCES backtest_config(backtest_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易明细表';
+
+CREATE TABLE `backtest_batch_summary` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `strategy_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '策略名称',
+  `backtest_start_date` date NOT NULL COMMENT '回测开始日期',
+  `backtest_end_date` date NOT NULL COMMENT '回测结束日期',
+  `summary_json` json NOT NULL COMMENT '汇总结果JSON数据',
+  `stock_count` int(10) unsigned DEFAULT '0' COMMENT '回测股票数量',
+  `execution_time` decimal(12,4) DEFAULT '0.0000' COMMENT '执行时间（秒）',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_strategy_period` (`strategy_name`,`backtest_start_date`,`backtest_end_date`),
+  KEY `idx_strategy_name` (`strategy_name`),
+  KEY `idx_backtest_period` (`backtest_start_date`,`backtest_end_date`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='批量回测汇总结果表'
+
+
+-- =============================================
+-- 回测每日记录表
+-- 用于存储每个交易日的回测行为记录
+-- 使用策略名+回测期间段+交易日期作为复合主键
+-- =============================================
+
+CREATE TABLE `backtest_daily_records` (
+    `strategy_name` VARCHAR(100) NOT NULL COMMENT '策略名称',
+    `backtest_start_date` DATE NOT NULL COMMENT '回测开始日期',
+    `backtest_end_date` DATE NOT NULL COMMENT '回测结束日期',
+    `trade_date` DATE NOT NULL COMMENT '交易日期',
+    `buy_count` INT DEFAULT 0 COMMENT '当日买入次数',
+    `sell_count` INT DEFAULT 0 COMMENT '当日卖出次数',
+    `is_no_action` TINYINT(1) DEFAULT 0 COMMENT '是否无操作(0:有操作, 1:无操作)',
+    `total_asset` DECIMAL(15,2) COMMENT '当日总资产',
+    `profit_rate` DECIMAL(10,4) COMMENT '当日盈亏比例(%)',
+    `cash` DECIMAL(15,2) COMMENT '当日现金',
+    `position_count` INT DEFAULT 0 COMMENT '当日持仓数量',
+    `max_positions` INT DEFAULT 5 COMMENT '最大持仓限制',
+    `position_detail` TEXT COMMENT '持仓详情(JSON格式: [{code, name, profit_rate}, ...])',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`strategy_name`, `backtest_start_date`, `backtest_end_date`, `trade_date`),
+    INDEX `idx_strategy_period` (`strategy_name`, `backtest_start_date`, `backtest_end_date`),
+    INDEX `idx_trade_date` (`trade_date`),
+    INDEX `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='回测每日记录表';
+
+
+
+

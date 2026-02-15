@@ -218,15 +218,48 @@ class TriggerPointsReader:
         Returns:
             dict: 该股票的格式化数据
         """
-        all_data = self.get_all_formatted_data()
-        strategy_data = all_data.get(strategy_name, {})
+        # 直接查询数据库,避免加载全部数据
+        try:
+            # 解析证券代码
+            if '.' in stock_code:
+                parts = stock_code.split('.')
+                market = parts[0]
+                code = parts[1]
+            else:
+                market = 'sh'
+                code = stock_code
 
-        # 查找匹配的证券代码
-        for full_code, stock_data in strategy_data.items():
-            if full_code == stock_code or full_code.endswith('.' + stock_code):
-                return stock_data
+            # 直接查询数据库
+            results = self.db.query_trigger_points(
+                strategy_name=strategy_name,
+                stock_code=code,
+                market=market
+            )
 
-        return {}
+            if not results:
+                return {}
+
+            # 格式化返回数据
+            result = {}
+            for record in results:
+                backtest_start_date = record.backtest_start_date.strftime('%Y-%m-%d')
+                backtest_end_date = record.backtest_end_date.strftime('%Y-%m-%d')
+                backtest_period = f"{backtest_start_date}至{backtest_end_date}"
+
+                trigger_points = self._parse_trigger_points(record.trigger_points_json)
+                period_data = {}
+
+                for idx, trigger_point in enumerate(trigger_points):
+                    trigger_key = f"触发点位{idx + 1}"
+                    period_data[trigger_key] = trigger_point
+
+                result[backtest_period] = period_data
+
+            return result
+
+        except Exception as e:
+            logger.error(f"获取股票数据失败: {str(e)}")
+            return {}
 
     def get_backtest_data(self, strategy_name, stock_code, backtest_period):
         """
@@ -240,8 +273,48 @@ class TriggerPointsReader:
         Returns:
             dict: 该回测时段的格式化数据
         """
-        stock_data = self.get_stock_data(strategy_name, stock_code)
-        return stock_data.get(backtest_period, {})
+        # 直接查询数据库,避免加载全部数据
+        try:
+            # 解析证券代码
+            if '.' in stock_code:
+                parts = stock_code.split('.')
+                market = parts[0]
+                code = parts[1]
+            else:
+                market = 'sh'
+                code = stock_code
+
+            # 解析回测时段
+            if '至' in backtest_period:
+                start_date, end_date = backtest_period.split('至')
+            else:
+                return {}
+
+            # 直接查询数据库
+            results = self.db.query_trigger_points(
+                strategy_name=strategy_name,
+                stock_code=code,
+                market=market,
+                backtest_start_date=start_date,
+                backtest_end_date=end_date
+            )
+
+            if not results:
+                return {}
+
+            # 格式化返回数据
+            result = {}
+            for record in results:
+                trigger_points = self._parse_trigger_points(record.trigger_points_json)
+                for idx, trigger_point in enumerate(trigger_points):
+                    trigger_key = f"触发点位{idx + 1}"
+                    result[trigger_key] = trigger_point
+
+            return result
+
+        except Exception as e:
+            logger.error(f"获取回测数据失败: {str(e)}")
+            return {}
 
     def refresh_cache(self):
         """刷新缓存"""
