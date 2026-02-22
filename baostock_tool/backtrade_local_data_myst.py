@@ -555,6 +555,13 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
 
             # 保存到数据库
             strategy_db = StrategyTriggerDB()
+            
+            # 获取策略参数（将backtrader的params元组转换为字典）
+            strategy_params = {}
+            if hasattr(strategy_class, 'params'):
+                for param_name, param_value in strategy_class.params:
+                    strategy_params[param_name] = param_value
+            
             strategy_db.insert_or_update_summary(
                 strategy_name=strategy_name,
                 backtest_start_date=start_date,
@@ -562,7 +569,8 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
                 summary_json=summary_json,
                 stock_count=len(all_results),
                 execution_time=total_time,
-                backtest_framework='backtrader'
+                backtest_framework='backtrader',
+                strategy_params_json=strategy_params
             )
             logger.info(f"汇总结果已保存到数据库: {strategy_name} - {start_date}至{end_date}")
 

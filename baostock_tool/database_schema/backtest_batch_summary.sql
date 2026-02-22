@@ -7,17 +7,26 @@ CREATE TABLE IF NOT EXISTS `backtest_batch_summary` (
   `strategy_name` varchar(100) NOT NULL COMMENT '策略名称',
   `backtest_start_date` date NOT NULL COMMENT '回测开始日期',
   `backtest_end_date` date NOT NULL COMMENT '回测结束日期',
+  `backtest_framework` varchar(50) NOT NULL DEFAULT 'backtrader' COMMENT '回测框架：backtrader, time_based',
   `summary_json` json NOT NULL COMMENT '汇总结果JSON数据',
+  `strategy_params_json` json DEFAULT NULL COMMENT '策略参数JSON数据',
   `stock_count` int unsigned DEFAULT 0 COMMENT '回测股票数量',
   `execution_time` decimal(12,4) DEFAULT 0.00 COMMENT '执行时间（秒）',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_strategy_period` (`strategy_name`, `backtest_start_date`, `backtest_end_date`),
+  UNIQUE KEY `uk_strategy_period_framework` (`strategy_name`, `backtest_start_date`, `backtest_end_date`, `backtest_framework`),
   KEY `idx_strategy_name` (`strategy_name`),
   KEY `idx_backtest_period` (`backtest_start_date`, `backtest_end_date`),
+  KEY `idx_backtest_framework` (`backtest_framework`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='批量回测汇总结果表';
+
+-- 如果表已存在，添加新字段（可选执行）
+-- ALTER TABLE `backtest_batch_summary` ADD COLUMN `strategy_params_json` json DEFAULT NULL COMMENT '策略参数JSON数据' AFTER `summary_json`;
+-- ALTER TABLE `backtest_batch_summary` ADD COLUMN `backtest_framework` varchar(50) NOT NULL DEFAULT 'backtrader' COMMENT '回测框架：backtrader, time_based' AFTER `backtest_end_date`;
+-- ALTER TABLE `backtest_batch_summary` DROP INDEX `uk_strategy_period`;
+-- ALTER TABLE `backtest_batch_summary` ADD UNIQUE KEY `uk_strategy_period_framework` (`strategy_name`, `backtest_start_date`, `backtest_end_date`, `backtest_framework`);
 
 
 -- 示例数据插入

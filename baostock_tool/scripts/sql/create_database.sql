@@ -192,6 +192,22 @@ CREATE TABLE IF NOT EXISTS trade_calendar (
     INDEX idx_trading (is_trading_day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易日历数据表';
 
+-- 创建复权因子表
+CREATE TABLE IF NOT EXISTS stock_adjust_factor (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    date DATE NOT NULL COMMENT '日期',
+    market VARCHAR(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳',
+    code_int INT(10) UNSIGNED NOT NULL COMMENT '6位数字股票代码',
+    fore_adjust_factor DECIMAL(20,10) DEFAULT 1.0 COMMENT '前复权因子',
+    back_adjust_factor DECIMAL(20,10) DEFAULT 1.0 COMMENT '后复权因子',
+    dividend_rate DECIMAL(10,6) DEFAULT NULL COMMENT '除权除息信息',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE CURRENT_TIMESTAMP(),
+    UNIQUE KEY uk_date_market_code (date, market, code_int),
+    KEY idx_market_code (market, code_int),
+    KEY idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票复权因子表';
+
 
 -- 创建回测配置表
 CREATE TABLE backtest_config (

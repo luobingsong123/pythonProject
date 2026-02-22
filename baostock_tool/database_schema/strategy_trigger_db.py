@@ -69,6 +69,7 @@ class BacktestBatchSummary(Base):
     backtest_end_date = Column(Date, nullable=False, comment='回测结束日期')
     backtest_framework = Column(String(50), nullable=False, default='backtrader', comment='回测框架：backtrader, time_based')
     summary_json = Column(type_=String, nullable=False, comment='汇总结果JSON数据')
+    strategy_params_json = Column(type_=String, nullable=True, comment='策略参数JSON数据')
     stock_count = Column(Integer, default=0, comment='回测股票数量')
     execution_time = Column(Numeric(12, 4), default=0.00, comment='执行时间（秒）')
     created_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
@@ -362,7 +363,8 @@ class StrategyTriggerDB:
     # ============ 批量回测汇总结果相关方法 ============
 
     def insert_or_update_summary(self, strategy_name, backtest_start_date, backtest_end_date,
-                                 summary_json, stock_count=0, execution_time=0.0, backtest_framework='backtrader'):
+                                 summary_json, stock_count=0, execution_time=0.0, backtest_framework='backtrader',
+                                 strategy_params_json=None):
         """
         插入或更新批量回测汇总结果
 
@@ -374,6 +376,7 @@ class StrategyTriggerDB:
             stock_count (int): 回测股票数量
             execution_time (float): 执行时间（秒）
             backtest_framework (str): 回测框架类型，默认为'backtrader'，可选'time_based'
+            strategy_params_json (dict/str, optional): 策略参数JSON数据
 
         Returns:
             bool: 是否成功插入或更新
@@ -402,6 +405,14 @@ class StrategyTriggerDB:
             else:
                 summary_json_str = str(summary_json)
 
+            # 转换strategy_params_json为JSON字符串
+            strategy_params_str = None
+            if strategy_params_json is not None:
+                if isinstance(strategy_params_json, dict):
+                    strategy_params_str = json.dumps(strategy_params_json, ensure_ascii=False, cls=NumpyEncoder)
+                else:
+                    strategy_params_str = str(strategy_params_json)
+
             # 检查是否已存在相同记录
             existing = session.query(BacktestBatchSummary).filter(
                 BacktestBatchSummary.strategy_name == strategy_name,
@@ -413,6 +424,7 @@ class StrategyTriggerDB:
             if existing:
                 # 更新现有记录
                 existing.summary_json = summary_json_str
+                existing.strategy_params_json = strategy_params_str
                 existing.stock_count = stock_count
                 existing.execution_time = execution_time
                 session.commit()
@@ -425,6 +437,7 @@ class StrategyTriggerDB:
                     backtest_end_date=backtest_end_date,
                     backtest_framework=backtest_framework,
                     summary_json=summary_json_str,
+                    strategy_params_json=strategy_params_str,
                     stock_count=stock_count,
                     execution_time=execution_time
                 )
@@ -555,9 +568,12 @@ class StrategyTriggerDB:
         """
         return self.get_summary(strategy_name, backtest_start_date, backtest_end_date, backtest_framework) is not None
 
-    def get_all_strategies(self):
+    def get_all_strategies(self, backtest_framework=None):
         """
         获取所有策略名称列表
+
+        Args:
+            backtest_framework: 回测框架类型过滤（可选，如 'time_based' 或 'backtrader'）
 
         Returns:
             list: 策略名称列表
@@ -568,9 +584,14 @@ class StrategyTriggerDB:
             Session = sessionmaker(bind=self.engine)
             session = Session()
 
-            strategies = session.query(
+            query = session.query(
                 func.distinct(BacktestBatchSummary.strategy_name)
-            ).order_by(BacktestBatchSummary.strategy_name).all()
+            )
+            
+            if backtest_framework:
+                query = query.filter(BacktestBatchSummary.backtest_framework == backtest_framework)
+            
+            strategies = query.order_by(BacktestBatchSummary.strategy_name).all()
 
             session.close()
             return [s[0] for s in strategies]

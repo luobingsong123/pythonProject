@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from baostock_tool.utils.logger_utils import setup_logger
 from baostock_tool.config import get_db_config, get_log_config
 import sys
+import numpy as np
 
 db_config_ = get_db_config()
 log_config = get_log_config()
@@ -16,6 +17,11 @@ logger = setup_logger(logger_name=__name__,
 
 # 全局参数：最新交易日
 LATEST_TRADING_DAY = None
+
+# 复权状态常量
+ADJUSTFLAG_NONE = 3      # 不复权
+ADJUSTFLAG_FRONT = 2     # 前复权
+ADJUSTFLAG_BACK = 1      # 后复权
 
 
 class BaostockDataCollector:
@@ -91,6 +97,380 @@ class BaostockDataCollector:
                 return 'sz', int(code_str)
             else:
                 raise ValueError(f"无法解析股票代码: {full_code}")
+
+    def create_adjust_factor_table(self):
+        """创建复权因子表（如果不存在）"""
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS stock_adjust_factor (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            date DATE NOT NULL COMMENT '日期',
+            market VARCHAR(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳',
+            code_int INT(10) UNSIGNED NOT NULL COMMENT '6位数字股票代码',
+            fore_adjust_factor DECIMAL(20,10) DEFAULT 1.0 COMMENT '前复权因子',
+            back_adjust_factor DECIMAL(20,10) DEFAULT 1.0 COMMENT '后复权因子',
+            dividend_rate DECIMAL(10,6) DEFAULT NULL COMMENT '除权除息信息',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP() ON UPDATE CURRENT_TIMESTAMP(),
+            UNIQUE KEY uk_date_market_code (date, market, code_int),
+            KEY idx_market_code (market, code_int),
+            KEY idx_date (date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='股票复权因子表'
+        """
+        try:
+            self.cursor.execute(create_sql)
+            self.conn.commit()
+            logger.info("复权因子表创建/检查完成")
+            return True
+        except Exception as e:
+            logger.error(f"创建复权因子表失败: {e}")
+            return False
+
+    def get_adjust_factor(self, code, start_date, end_date):
+        """
+        获取股票复权因子数据
+        
+        参数:
+            code: 股票代码，格式如 "sh.600000" 或 "sz.000001"
+            start_date: 开始日期，格式 "YYYY-MM-DD"
+            end_date: 结束日期，格式 "YYYY-MM-DD"
+        
+        返回:
+            DataFrame: 包含复权因子数据，字段包括：
+                - date: 日期
+                - code: 股票代码
+                - fore_adjust_factor: 前复权因子
+                - back_adjust_factor: 后复权因子
+                - dividend_rate: 除权除息信息
+        """
+        try:
+            # 解析股票代码
+            market, code_int = self.parse_stock_code(code)
+            
+            # 查询baostock获取复权因子
+            rs = bs.query_adjust_factor(code=code, start_date=start_date, end_date=end_date)
+            
+            if rs.error_code != '0':
+                logger.warning(f"获取股票{code}复权因子失败: {rs.error_msg}")
+                return None
+            
+            data_list = []
+            while (rs.error_code == '0') and rs.next():
+                data_list.append(rs.get_row_data())
+            
+            if not data_list:
+                logger.debug(f"股票{code}在{start_date}到{end_date}期间无复权因子数据")
+                return None
+            
+            df = pd.DataFrame(data_list, columns=rs.fields)
+            logger.debug(f"成功获取股票{code}复权因子{len(df)}条")
+            return df
+            
+        except Exception as e:
+            logger.error(f"获取股票{code}复权因子异常: {e}")
+            return None
+
+    def save_adjust_factor(self, code, factor_df):
+        """
+        保存复权因子数据到数据库
+        
+        参数:
+            code: 股票代码
+            factor_df: 复权因子DataFrame
+        """
+        if factor_df is None or factor_df.empty:
+            return False
+        
+        try:
+            market, code_int = self.parse_stock_code(code)
+            
+            # baostock query_adjust_factor 返回字段: code, tradeDate, foreAdjustFactor, backAdjustFactor, dividendRate
+            logger.debug(f"复权因子DataFrame字段: {factor_df.columns.tolist()}")
+            
+            data_tuples = []
+            for _, row in factor_df.iterrows():
+                # baostock复权因子接口返回的日期字段名是 'tradeDate'
+                if 'tradeDate' in row:
+                    date = row['tradeDate']
+                elif 'date' in row:
+                    date = row['date']
+                else:
+                    logger.error(f"复权因子数据缺少日期字段，当前字段: {row.index.tolist()}")
+                    continue
+                
+                fore_factor = float(row['foreAdjustFactor']) if 'foreAdjustFactor' in row and row['foreAdjustFactor'] != '' and pd.notna(row['foreAdjustFactor']) else 1.0
+                back_factor = float(row['backAdjustFactor']) if 'backAdjustFactor' in row and row['backAdjustFactor'] != '' and pd.notna(row['backAdjustFactor']) else 1.0
+                dividend_rate = float(row['dividendRate']) if 'dividendRate' in row and row['dividendRate'] != '' and pd.notna(row.get('dividendRate', '')) else None
+                
+                data_tuples.append((date, market, code_int, fore_factor, back_factor, dividend_rate))
+            
+            # 批量插入
+            insert_sql = """
+            REPLACE INTO stock_adjust_factor 
+            (date, market, code_int, fore_adjust_factor, back_adjust_factor, dividend_rate, created_at, updated_at) 
+            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+            
+            self.cursor.executemany(insert_sql, data_tuples)
+            self.conn.commit()
+            logger.info(f"股票{code} 复权因子保存 {len(data_tuples)} 条")
+            return True
+            
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"保存复权因子异常: {e}")
+            return False
+
+    def get_adjust_factor_from_db(self, code, start_date=None, end_date=None):
+        """
+        从数据库获取复权因子数据
+        
+        参数:
+            code: 股票代码
+            start_date: 开始日期（可选）
+            end_date: 结束日期（可选）
+        
+        返回:
+            dict: {date: (fore_factor, back_factor)} 格式的字典
+        """
+        try:
+            market, code_int = self.parse_stock_code(code)
+            
+            if start_date and end_date:
+                sql = """
+                SELECT date, fore_adjust_factor, back_adjust_factor 
+                FROM stock_adjust_factor 
+                WHERE market = %s AND code_int = %s AND date >= %s AND date <= %s
+                ORDER BY date ASC
+                """
+                self.cursor.execute(sql, (market, code_int, start_date, end_date))
+            else:
+                sql = """
+                SELECT date, fore_adjust_factor, back_adjust_factor 
+                FROM stock_adjust_factor 
+                WHERE market = %s AND code_int = %s
+                ORDER BY date ASC
+                """
+                self.cursor.execute(sql, (market, code_int))
+            
+            results = self.cursor.fetchall()
+            
+            factor_dict = {}
+            for row in results:
+                factor_dict[row['date']] = (float(row['fore_adjust_factor']), float(row['back_adjust_factor']))
+            
+            return factor_dict
+            
+        except Exception as e:
+            logger.error(f"从数据库获取复权因子异常: {e}")
+            return {}
+
+    def get_latest_adjust_factor(self, code):
+        """
+        获取股票最新的复权因子
+        
+        前复权特点：使用最新的复权因子对所有历史数据进行复权
+        这样可以保证数据的一致性
+        
+        参数:
+            code: 股票代码
+        
+        返回:
+            float: 最新的前复权因子，如果没有返回1.0
+        """
+        try:
+            market, code_int = self.parse_stock_code(code)
+            
+            sql = """
+            SELECT fore_adjust_factor 
+            FROM stock_adjust_factor 
+            WHERE market = %s AND code_int = %s
+            ORDER BY date DESC
+            LIMIT 1
+            """
+            self.cursor.execute(sql, (market, code_int))
+            result = self.cursor.fetchone()
+            
+            if result:
+                return float(result['fore_adjust_factor'])
+            return 1.0
+            
+        except Exception as e:
+            logger.error(f"获取最新复权因子异常: {e}")
+            return 1.0
+
+    def rebuild_stock_all_data(self, code, end_date, full_start_date='1999-01-01'):
+        """
+        重新拉取股票的所有历史数据（当检测到新除权事件时调用）
+        
+        参数:
+            code: 股票代码
+            end_date: 结束日期
+            full_start_date: 全量拉取的起始日期，默认1999-01-01
+        
+        返回:
+            bool: 是否成功
+        """
+        try:
+            market, code_int = self.parse_stock_code(code)
+            logger.info(f"股票{code} 检测到新除权事件，开始重新拉取全部历史数据...")
+            
+            # 1. 删除该股票的所有日线数据
+            delete_sql = """
+            DELETE FROM stock_daily_data 
+            WHERE market = %s AND code_int = %s
+            """
+            self.cursor.execute(delete_sql, (market, code_int))
+            logger.info(f"股票{code} 已删除旧日线数据")
+            
+            # 2. 重新获取复权因子（全量）
+            factor_df = self.get_adjust_factor(code, full_start_date, end_date)
+            if factor_df is not None and not factor_df.empty:
+                self.save_adjust_factor(code, factor_df)
+            
+            # 3. 获取最新的复权因子
+            latest_factor = self.get_latest_adjust_factor(code)
+            logger.info(f"股票{code} 最新复权因子: {latest_factor:.6f}")
+            
+            # 4. 重新拉取所有日线数据（不复权）
+            daily_df = self.get_stock_k_data(code, full_start_date, end_date, frequency='d')
+            
+            if daily_df is not None and not daily_df.empty:
+                # 5. 应用前复权
+                if latest_factor != 1.0:
+                    daily_df = self.apply_front_adjust(daily_df, latest_factor=latest_factor)
+                
+                # 6. 保存数据
+                self.save_daily_data_batch(code, daily_df, adjustflag=ADJUSTFLAG_FRONT)
+                logger.info(f"股票{code} 历史数据重建完成，共 {len(daily_df)} 条")
+                return True
+            else:
+                logger.warning(f"股票{code} 重新拉取数据失败")
+                return False
+                
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"重建股票{code}历史数据异常: {e}")
+            return False
+
+    def check_need_adjust(self, code, start_date, end_date):
+        """
+        检查股票在指定日期范围内是否需要复权处理
+        
+        参数:
+            code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+        
+        返回:
+            tuple: (need_adjust, has_new_factor)
+                - need_adjust: 是否需要复权处理
+                - has_new_factor: 是否有新的复权因子
+        """
+        try:
+            # 获取baostock的复权因子
+            factor_df = self.get_adjust_factor(code, start_date, end_date)
+            
+            if factor_df is None or factor_df.empty:
+                # 没有复权因子，不需要复权
+                return False, False
+            
+            # 检查数据库中是否已有这些复权因子
+            market, code_int = self.parse_stock_code(code)
+            
+            # 查询数据库中该股票在日期范围内的复权因子记录数
+            sql = """
+            SELECT COUNT(*) as cnt FROM stock_adjust_factor 
+            WHERE market = %s AND code_int = %s AND date >= %s AND date <= %s
+            """
+            self.cursor.execute(sql, (market, code_int, start_date, end_date))
+            result = self.cursor.fetchone()
+            db_count = result['cnt'] if result else 0
+            
+            # 如果baostock返回的记录数大于数据库中的记录数，说明有新的复权因子
+            has_new_factor = len(factor_df) > db_count
+            
+            # 有复权因子就需要处理
+            return True, has_new_factor
+            
+        except Exception as e:
+            logger.error(f"检查复权需求异常: {e}")
+            return False, False
+
+    def apply_front_adjust(self, daily_df, factor_dict=None, latest_factor=None):
+        """
+        应用前复权处理到日线数据
+        
+        前复权计算公式：
+        前复权价格 = 原始价格 × 前复权因子
+        
+        前复权特点：
+        - 使用最新的复权因子对所有历史数据进行复权
+        - 这样可以保证数据的一致性
+        
+        参数:
+            daily_df: 日线数据DataFrame
+            factor_dict: 复权因子字典 {date: (fore_factor, back_factor)}，用于逐日匹配
+            latest_factor: 最新的前复权因子（优先使用）
+        
+        返回:
+            DataFrame: 前复权后的数据
+        """
+        if daily_df is None or daily_df.empty:
+            return daily_df
+        
+        # 如果没有因子数据，直接返回原数据
+        if latest_factor is None and (factor_dict is None or not factor_dict):
+            return daily_df
+        
+        try:
+            df = daily_df.copy()
+            
+            # 将date列转换为日期类型
+            df['date'] = pd.to_datetime(df['date']).dt.date
+            
+            # 方式1：使用最新因子对所有数据复权（推荐）
+            if latest_factor is not None:
+                factor = latest_factor
+                logger.debug(f"使用最新复权因子: {factor}")
+                
+                # 对价格字段应用前复权
+                for idx, row in df.iterrows():
+                    df.at[idx, 'open'] = float(row['open']) * factor if row['open'] != '' else 0
+                    df.at[idx, 'high'] = float(row['high']) * factor if row['high'] != '' else 0
+                    df.at[idx, 'low'] = float(row['low']) * factor if row['low'] != '' else 0
+                    df.at[idx, 'close'] = float(row['close']) * factor if row['close'] != '' else 0
+                    df.at[idx, 'preclose'] = float(row['preclose']) * factor if 'preclose' in row and row['preclose'] != '' else 0
+            
+            # 方式2：根据日期匹配因子
+            elif factor_dict:
+                # 需要为每个日期找到合适的因子
+                # 前复权：使用该日期之后最近的因子（或累积因子）
+                sorted_dates = sorted(factor_dict.keys(), reverse=True)
+                
+                for idx, row in df.iterrows():
+                    date = row['date']
+                    
+                    # 查找该日期对应的因子
+                    # 前复权：使用该日期或之后最近的因子
+                    factor = 1.0
+                    for factor_date in sorted_dates:
+                        if factor_date <= date:
+                            factor = factor_dict[factor_date][0]
+                            break
+                    
+                    # 对价格字段应用前复权
+                    df.at[idx, 'open'] = float(row['open']) * factor if row['open'] != '' else 0
+                    df.at[idx, 'high'] = float(row['high']) * factor if row['high'] != '' else 0
+                    df.at[idx, 'low'] = float(row['low']) * factor if row['low'] != '' else 0
+                    df.at[idx, 'close'] = float(row['close']) * factor if row['close'] != '' else 0
+                    df.at[idx, 'preclose'] = float(row['preclose']) * factor if 'preclose' in row and row['preclose'] != '' else 0
+            
+            logger.debug(f"前复权处理完成，处理了{len(df)}条数据")
+            return df
+            
+        except Exception as e:
+            logger.error(f"应用前复权异常: {e}")
+            return daily_df
 
     def get_trade_dates(self, start_date, end_date):
         """
@@ -235,9 +615,18 @@ class BaostockDataCollector:
             logger.error(f"保存股票基本信息异常: {e}")
             return False
 
-    def get_stock_k_data(self, code, start_date, end_date, frequency='d', fields=None):
+    def get_stock_k_data(self, code, start_date, end_date, frequency='d', fields=None, adjustflag="3"):
         """
         获取股票K线数据
+        
+        参数:
+            code: 股票代码，如 "sh.600000"
+            start_date: 开始日期，格式 "YYYY-MM-DD"
+            end_date: 结束日期，格式 "YYYY-MM-DD"
+            frequency: 频率，'d'=日线, '5'=5分钟等
+            fields: 返回字段
+            adjustflag: 复权类型，"1"-后复权, "2"-前复权, "3"-不复权
+                       默认获取不复权数据，然后自行应用复权因子
         """
         if fields is None:
             if frequency == 'd':
@@ -252,7 +641,7 @@ class BaostockDataCollector:
                 start_date=start_date,
                 end_date=end_date,
                 frequency=frequency,
-                adjustflag="2"
+                adjustflag=adjustflag
             )
 
             if rs.error_code != '0':
@@ -275,8 +664,14 @@ class BaostockDataCollector:
             logger.error(f"获取股票{code}K线数据异常: {e}")
             return None
 
-    def save_daily_data_batch(self, code, daily_df):
-        """批量保存日线数据到数据库（新表结构）"""
+    def save_daily_data_batch(self, code, daily_df, adjustflag=ADJUSTFLAG_FRONT):
+        """批量保存日线数据到数据库（新表结构）
+        
+        参数:
+            code: 股票代码
+            daily_df: 日线数据DataFrame
+            adjustflag: 复权标志，默认为前复权(2)
+        """
         if daily_df is None or daily_df.empty:
             return False
 
@@ -304,7 +699,7 @@ class BaostockDataCollector:
                 isst = 1 if row.get('isST', '0') == '1' else 0
                 data_tuples.append((
                     date, market, code_int, 'd', open_price, high, low, close, preclose,
-                    volume, amount, 2, turn, tradestatus, pctchg, peTTM, pbMRQ, psTTM, pcfNcfTTM, isst
+                    volume, amount, adjustflag, turn, tradestatus, pctchg, peTTM, pbMRQ, psTTM, pcfNcfTTM, isst
                 ))
             # 批量插入
             insert_sql = """
@@ -316,7 +711,8 @@ class BaostockDataCollector:
             """
             self.cursor.executemany(insert_sql, data_tuples)
             self.conn.commit()
-            logger.info(f"股票{code} 日线数据批量保存 {len(data_tuples)} 条")
+            adjust_desc = {ADJUSTFLAG_FRONT: '前复权', ADJUSTFLAG_BACK: '后复权', ADJUSTFLAG_NONE: '不复权'}
+            logger.info(f"股票{code} 日线数据批量保存 {len(data_tuples)} 条 ({adjust_desc.get(adjustflag, '未知')})")
             return True
 
         except Exception as e:
@@ -386,6 +782,7 @@ class BaostockDataCollector:
     def collect_all_data(self, minute_frequencies=['5']):
         """
         主函数：收集所有数据（全量拉取，无存在性检查）
+        支持前复权处理
         """
 
         # 1. 登录Baostock
@@ -396,6 +793,9 @@ class BaostockDataCollector:
         if not self.connect_database():
             self.logout_baostock()
             return False
+
+        # 2.1 创建复权因子表（如果不存在）
+        self.create_adjust_factor_table()
 
         sql = """
         SELECT MAX(DATE) AS latest_date
@@ -494,9 +894,29 @@ class BaostockDataCollector:
                             if minute_df is not None:
                                 self.save_minute_data_batch(code, minute_df, freq)
                         else:
-                            daily_df = self.get_stock_k_data(code, stock_start_date, end_date, frequency=freq)
-                            if daily_df is not None:
-                                self.save_daily_data_batch(code, daily_df)
+                            # 日线数据处理 - 支持前复权
+                            # 先检查是否有新的除权事件
+                            need_adjust, has_new_factor = self.check_need_adjust(code, stock_start_date, end_date)
+                            
+                            if has_new_factor:
+                                # 检测到新的除权事件，重新拉取该股票的全部历史数据
+                                logger.warning(f"股票{code} 检测到新的除权事件，触发全量重建")
+                                self.rebuild_stock_all_data(code, end_date)  # 使用默认开始日期1999-01-01
+                            else:
+                                # 没有新除权事件，正常增量更新
+                                daily_df = self.get_stock_k_data(code, stock_start_date, end_date, frequency=freq)
+                                if daily_df is not None:
+                                    # 获取最新的复权因子
+                                    latest_factor = self.get_latest_adjust_factor(code)
+                                    
+                                    if latest_factor != 1.0:
+                                        # 有历史复权因子，应用前复权
+                                        daily_df = self.apply_front_adjust(daily_df, latest_factor=latest_factor)
+                                        self.save_daily_data_batch(code, daily_df, adjustflag=ADJUSTFLAG_FRONT)
+                                        logger.debug(f"股票{code} 使用历史复权因子: {latest_factor:.6f}")
+                                    else:
+                                        # 无复权因子，直接保存
+                                        self.save_daily_data_batch(code, daily_df, adjustflag=ADJUSTFLAG_FRONT)
 
                 logger.info("全量数据收集完成")
                 return True

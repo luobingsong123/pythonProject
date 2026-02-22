@@ -59,6 +59,17 @@ class BaseStrategy(ABC):
         if self.stop_params['stop_loss'] >= 0:
             raise ValueError("stop_loss 必须小于 0")
     
+    def get_all_params(self) -> Dict[str, Any]:
+        """
+        获取所有策略参数（包括止盈止损参数）
+        
+        Returns:
+            Dict: 包含所有参数的字典
+        """
+        all_params = dict(self.params)
+        all_params.update(self.stop_params)
+        return all_params
+    
     @abstractmethod
     def check_buy_signal(
         self, 
@@ -240,16 +251,37 @@ class Position:
         # 动态止盈止损相关
         self.high_price = buy_price  # 持仓期间最高价
         self.stop_loss_price = None  # 动态止损价
+        
+        # 补仓相关
+        self.added_position = False     # 是否已补仓
+        self.add_position_price = None  # 补仓价格
+        self.avg_cost = buy_price       # 平均成本（补仓后更新）
     
     def update_high_price(self, current_price: float):
         """更新最高价"""
         if current_price > self.high_price:
             self.high_price = current_price
     
+    def update_avg_cost(self, add_price: float, add_volume: int):
+        """
+        更新平均成本（补仓后调用）
+        
+        Args:
+            add_price: 补仓价格
+            add_volume: 补仓数量
+        """
+        total_cost = self.buy_price * self.volume + add_price * add_volume
+        total_volume = self.volume + add_volume
+        self.avg_cost = total_cost / total_volume
+        self.volume = total_volume
+        self.added_position = True
+        self.add_position_price = add_price
+    
     def get_max_profit_rate(self) -> float:
-        """获取持仓期间最大盈亏比例"""
-        if self.buy_price > 0:
-            return (self.high_price - self.buy_price) / self.buy_price
+        """获取持仓期间最大盈亏比例（基于平均成本）"""
+        cost = self.avg_cost if self.added_position else self.buy_price
+        if cost > 0:
+            return (self.high_price - cost) / cost
         return 0.0
     
     def get_current_value(self, current_price: float) -> float:
@@ -257,9 +289,10 @@ class Position:
         return self.volume * current_price
     
     def get_profit_rate(self, current_price: float) -> float:
-        """计算盈亏比例"""
-        if self.buy_price > 0:
-            return (current_price - self.buy_price) / self.buy_price
+        """计算盈亏比例（基于平均成本）"""
+        cost = self.avg_cost if self.added_position else self.buy_price
+        if cost > 0:
+            return (current_price - cost) / cost
         return 0.0
     
     def to_dict(self) -> Dict[str, Any]:
@@ -275,7 +308,10 @@ class Position:
             'sell_commission': self.sell_commission,
             'hold_days': self.hold_days,
             'high_price': self.high_price,
-            'max_profit_rate': self.get_max_profit_rate()
+            'max_profit_rate': self.get_max_profit_rate(),
+            'added_position': self.added_position,
+            'add_position_price': self.add_position_price,
+            'avg_cost': self.avg_cost,
         }
     
     def __repr__(self):

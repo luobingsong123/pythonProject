@@ -46,13 +46,29 @@ import json
 BACKTEST_CONFIG = {
     'start_date': '2024-01-01',       # 回测开始日期
     'end_date': '2024-12-31',         # 回测结束日期
-    'initial_cash': 1000000,          # 初始资金（100万）
+    'initial_cash': 10000000,         # 初始资金
     'commission': 0.001,              # 手续费率（0.1%）
     'slippage_perc': 0.001,           # 滑点率（0.1%）
-    'max_positions': 5,               # 最大持仓数量
-    'position_size_pct': 0.20,        # 单只股票仓位比例（20%）
+    'max_positions': 100,             # 最大持仓数量
+    'max_daily_buys': 10,             # 每日最大开仓数量
+    'position_size_pct': 0.01,        # 单只股票仓位比例（%）
     'min_hold_days': 1,               # 最小持仓天数（T+1限制）
     'lookback_days': 365,             # 历史数据回溯天数
+    
+    # ========== 回避时间段配置 ==========
+    'enable_blackout': False,         # 是否启用回避功能（默认关闭）
+    'blackout_periods': [
+        # 回避时间段列表，每个时间段包含：
+        # - force_sell_date: 该日期后的第一个交易日强制卖出所有持仓
+        # - resume_buy_date: 该日期后才允许买入
+        # - reason: 原因说明（可选）
+        # 示例：
+        # {
+        #     'force_sell_date': '2025-04-01',   # 4月1日后第一个交易日强制卖出
+        #     'resume_buy_date': '2025-04-20',   # 4月20日后才能买入
+        #     'reason': '国际关税政策波动期'
+        # }
+    ],
 }
 
 os.makedirs("csv", exist_ok=True)
@@ -423,6 +439,84 @@ class TimeBasedBacktester:
         
         return True
     
+    def execute_add_position(self, stock_code, add_price, add_volume, current_date, add_info=None):
+        """
+        执行补仓
+        
+        Args:
+            stock_code: 股票代码
+            add_price: 补仓价格
+            add_volume: 补仓数量
+            current_date: 当前日期
+            add_info: 补仓信号信息
+            
+        Returns:
+            bool: 是否成功补仓
+        """
+        if stock_code not in self.positions:
+            return False
+        
+        position = self.positions[stock_code]
+        
+        # 计算补仓费用
+        amount = add_price * add_volume
+        commission = amount * self.config['commission']
+        slippage_cost = amount * self.config['slippage_perc']
+        total_cost = amount + commission + slippage_cost
+        
+        if total_cost > self.cash:
+            logger.debug(f"{current_date}: 资金不足，无法补仓 {stock_code}")
+            return False
+        
+        # 扣除资金
+        self.cash -= total_cost
+        self.total_buy_commission += commission
+        
+        # 更新持仓信息
+        position.update_avg_cost(add_price, add_volume)
+        
+        # 记录交易
+        trade_record = {
+            'date': str(current_date),
+            'stock_code': stock_code,
+            'market': position.market,
+            'name': position.name,
+            'action': 'add_position',
+            'price': add_price,
+            'volume': add_volume,
+            'amount': amount,
+            'commission': commission,
+            'signal_info': add_info
+        }
+        self.trading_records.append(trade_record)
+        
+        # 记录触发点位
+        trigger_point = {
+            'date': str(current_date),
+            'stock_code': stock_code,
+            'market': position.market,
+            'name': position.name,
+            'trigger_type': 'add_position',
+            'price': float(add_price),
+            'volume': float(add_volume),
+            'commission': float(commission),
+            'signal_info': add_info
+        }
+        self.trigger_points.append(trigger_point)
+        
+        # 计算当前总资产和盈亏比例
+        total_value = self.cash
+        for pos_code, pos in self.positions.items():
+            total_value += pos.get_current_value(add_price if pos_code == stock_code else pos.buy_price)
+        profit_rate = (total_value / self.config['initial_cash'] - 1) * 100
+        
+        logger.info(f"[补仓] {current_date} | {stock_code:0>6} {position.name} | "
+                   f"价格: {add_price:.2f} | 数量: {add_volume} | 金额: {amount:.2f} | 手续费: {commission:.2f} | "
+                   f"新持仓: {position.volume} | 新成本: {position.avg_cost:.2f} | "
+                   f"总资产: {total_value:,.2f} | 盈亏: {profit_rate:+.2f}%")
+        
+        return True
+    
     def calculate_portfolio_value(self, current_date):
         """计算总资产（使用预加载数据）"""
         total_value = self.cash
@@ -439,6 +533,70 @@ class TimeBasedBacktester:
                 total_value += position.get_current_value(position.buy_price)
         
         return total_value
+    
+    def _check_blackout_force_sell(self, current_date: str, trading_dates: list):
+        """
+        检查是否需要在当前日期强制卖出（回避时间段开始）
+        
+        Args:
+            current_date: 当前日期
+            trading_dates: 交易日历
+            
+        Returns:
+            Tuple[bool, str]: (是否强制卖出, 原因)
+        """
+        if not self.config.get('enable_blackout', False):
+            return False, ''
+        
+        blackout_periods = self.config.get('blackout_periods', [])
+        if not blackout_periods:
+            return False, ''
+        
+        current_date_dt = pd.to_datetime(current_date)
+        
+        for period in blackout_periods:
+            force_sell_date = pd.to_datetime(period['force_sell_date'])
+            
+            # 找到 force_sell_date 之后的第一个交易日
+            for trade_date in trading_dates:
+                if trade_date >= force_sell_date:
+                    # 如果当前日期就是这个交易日，则强制卖出
+                    if trade_date.strftime('%Y-%m-%d') == current_date:
+                        reason = period.get('reason', '回避时间段开始')
+                        return True, f'强制卖出: {reason}'
+                    break
+        
+        return False, ''
+    
+    def _is_in_blackout_period(self, current_date: str):
+        """
+        检查当前是否在禁止买入时间段内
+        
+        Args:
+            current_date: 当前日期
+            
+        Returns:
+            Tuple[bool, str]: (是否禁止买入, 原因)
+        """
+        if not self.config.get('enable_blackout', False):
+            return False, ''
+        
+        blackout_periods = self.config.get('blackout_periods', [])
+        if not blackout_periods:
+            return False, ''
+        
+        current_date_dt = pd.to_datetime(current_date)
+        
+        for period in blackout_periods:
+            force_sell_date = pd.to_datetime(period['force_sell_date'])
+            resume_buy_date = pd.to_datetime(period['resume_buy_date'])
+            
+            # 在强制卖出日期到恢复买入日期之间，禁止买入
+            if force_sell_date <= current_date_dt < resume_buy_date:
+                reason = period.get('reason', '回避时间段')
+                return True, f'禁止买入: {reason}'
+        
+        return False, ''
     
     def run_backtest(self, strategy_name='TimeBasedStrategy', save_to_db=False):
         """
@@ -480,6 +638,17 @@ class TimeBasedBacktester:
         logger.info(f"初始资金: {self.config['initial_cash']:,.0f}")
         logger.info(f"最大持仓: {self.config['max_positions']} 只")
         logger.info(f"交易日数: {len(trading_dates)} 天")
+        
+        # 显示回避功能状态
+        if self.config.get('enable_blackout', False):
+            blackout_periods = self.config.get('blackout_periods', [])
+            logger.info(f"回避功能: 已启用，共 {len(blackout_periods)} 个回避时间段")
+            for idx, period in enumerate(blackout_periods, 1):
+                logger.info(f"  时间段{idx}: {period.get('force_sell_date')} 卖出 -> "
+                           f"{period.get('resume_buy_date')} 恢复买入 ({period.get('reason', '未指定原因')})")
+        else:
+            logger.info(f"回避功能: 未启用")
+        
         logger.info(f"{'='*60}")
         
         # 获取股票列表
@@ -513,9 +682,25 @@ class TimeBasedBacktester:
             # 记录当日操作数量
             daily_buy_count = 0
             daily_sell_count = 0
+            daily_add_count = 0
+            
+            # ========== 检查是否需要强制卖出（回避时间段开始）==========
+            force_sell, force_sell_reason = self._check_blackout_force_sell(current_date, trading_dates)
+            if force_sell:
+                # 强制卖出所有持仓
+                for stock_code, position in list(self.positions.items()):
+                    stock_data = self.get_stock_data_up_to_date(stock_code, current_date)
+                    if stock_data is not None and len(stock_data) > 0:
+                        today_data = stock_data.loc[current_date_dt]
+                        sell_price = today_data['open']  # 以开盘价卖出
+                        self.execute_sell(stock_code, sell_price, position.volume, current_date, force_sell_reason)
+                        daily_sell_count += 1
+                logger.warning(f"[回避时间段] {current_date}: {force_sell_reason}, 已清仓 {daily_sell_count} 只股票")
             
             # 1. 先处理卖出信号（检查当前持仓）
             stocks_to_sell = []
+            stocks_to_add = []  # 补仓列表
+            
             for stock_code, position in list(self.positions.items()):
                 position.hold_days += 1
                 
@@ -526,11 +711,26 @@ class TimeBasedBacktester:
                 # 从预加载数据获取历史数据
                 stock_data = self.get_stock_data_up_to_date(stock_code, current_date)
                 if stock_data is not None and len(stock_data) > 0:
+                    # 先检查补仓信号（如果策略支持）
+                    if hasattr(self.strategy, 'check_add_position_signal'):
+                        should_add, add_price, add_info = self.strategy.check_add_position_signal(
+                            position, stock_data, current_date
+                        )
+                        if should_add:
+                            stocks_to_add.append((stock_code, add_price, position.volume, add_info))
+                            continue  # 补仓后跳过当天的卖出检查
+                    
                     should_sell, sell_reason, sell_price = self.strategy.check_sell_signal(
                         position, stock_data, current_date
                     )
                     if should_sell:
                         stocks_to_sell.append((stock_code, sell_price, position.volume, sell_reason))
+            
+            # 执行补仓
+            daily_add_count = 0
+            for stock_code, add_price, add_volume, add_info in stocks_to_add:
+                if self.execute_add_position(stock_code, add_price, add_volume, current_date, add_info):
+                    daily_add_count += 1
             
             # 执行卖出
             for stock_code, price, volume, reason in stocks_to_sell:
@@ -538,7 +738,11 @@ class TimeBasedBacktester:
                 daily_sell_count += 1
             
             # 2. 处理买入信号（如果还有持仓空间）
-            if len(self.positions) < self.config['max_positions']:
+            # ========== 检查是否在禁止买入时间段 ==========
+            in_blackout, blackout_reason = self._is_in_blackout_period(current_date)
+            if in_blackout:
+                logger.debug(f"{current_date}: {blackout_reason}")
+            elif len(self.positions) < self.config['max_positions']:
                 buy_signals = []
                 
                 for market, code_int, name in stock_codes:
@@ -566,10 +770,12 @@ class TimeBasedBacktester:
                 # 按信号强度排序，选择最强的信号
                 buy_signals.sort(key=lambda x: x['signal_strength'], reverse=True)
                 
-                # 计算可买入数量
+                # 计算可买入数量（考虑持仓上限和每日开仓上限）
                 available_slots = self.config['max_positions'] - len(self.positions)
+                max_daily_buys = self.config.get('max_daily_buys', 10)
+                max_buys_today = min(available_slots, max_daily_buys)
                 
-                for signal in buy_signals[:available_slots]:
+                for signal in buy_signals[:max_buys_today]:
                     stock_code = signal['stock_code']
                     signal_info = signal['signal_info']
                     price = signal_info['close_price']
@@ -644,8 +850,9 @@ class TimeBasedBacktester:
                 position_info = " | 持仓: " + ", ".join(position_list)
             
             # 打印当日摘要
-            if daily_buy_count > 0 or daily_sell_count > 0:
-                logger.info(f"[交易日] {current_date} | 买入: {daily_buy_count} | 卖出: {daily_sell_count} | "
+            if daily_buy_count > 0 or daily_sell_count > 0 or daily_add_count > 0:
+                add_info_str = f" | 补仓: {daily_add_count}" if daily_add_count > 0 else ""
+                logger.info(f"[交易日] {current_date} | 买入: {daily_buy_count} | 卖出: {daily_sell_count}{add_info_str} | "
                            f"总资产: {total_value:,.2f} | 盈亏: {profit_rate:+.2f}% | "
                            f"持仓数: {len(self.positions)}/{self.config['max_positions']}{position_info}")
             else:
@@ -878,7 +1085,8 @@ class TimeBasedBacktester:
                     summary_json=summary_json,
                     stock_count=len(trigger_by_stock),
                     execution_time=total_time,
-                    backtest_framework='time_based'
+                    backtest_framework='time_based',
+                    strategy_params_json=self.strategy.get_all_params()
                 )
                 
                 logger.info(f"汇总结果已保存到数据库")
@@ -895,18 +1103,24 @@ def main():
     """主函数"""
     # ============ 使用方式示例 ============
     
-    # 方式1：使用默认策略（价值策略）
-    backtester = TimeBasedBacktester(BACKTEST_CONFIG)
+    # 方式1：使用 value_strategy_time_1000 策略
+    # from utils.strategies.value_strategy_time_1000 import ValueStrategyTimeBased
+    from utils.strategies.value_strategy_time import ValueStrategyTimeBased
+    strategy = ValueStrategyTimeBased()
+    backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
     
-    # 方式2：使用策略名称指定
+    # 方式2：使用默认策略（价值策略）
+    # backtester = TimeBasedBacktester(BACKTEST_CONFIG)
+    
+    # 方式3：使用策略名称指定
     # backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy='value')
     
-    # 方式3：使用策略名称+自定义参数
+    # 方式4：使用策略名称+自定义参数
     # from utils.strategies import get_strategy
     # strategy = get_strategy('value', params={'max_pe_ttm': 25, 'buy_threshold': -0.10})
     # backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
     
-    # 方式4：使用MA策略
+    # 方式5：使用MA策略
     # backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy='ma')
     
     # 执行回测
