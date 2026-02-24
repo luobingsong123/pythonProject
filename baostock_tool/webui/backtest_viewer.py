@@ -5,12 +5,15 @@
 - backtrader: 触发点位和K线图展示
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response
 import sys
 import os
 import json
 from datetime import datetime, timedelta
 import pandas as pd
+import threading
+import io
+import subprocess
 
 # 添加父目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -701,6 +704,47 @@ def get_daily_records():
             'success': False,
             'error': str(e)
         })
+
+
+@app.route('/api/update_market_data', methods=['POST'])
+def update_market_data():
+    """
+    执行市场数据更新操作（流式响应）
+    """
+    def generate():
+        try:
+            # 获取 update_market_data.py 的路径
+            script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'update_market_data.py')
+
+            yield f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始执行市场数据更新...\n"
+            yield f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 脚本路径: {script_path}\n\n"
+
+            # 使用 subprocess 执行脚本并实时输出
+            process = subprocess.Popen(
+                [sys.executable, script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                encoding='utf-8',
+                errors='replace'
+            )
+
+            # 实时读取输出
+            for line in process.stdout:
+                yield line
+
+            process.wait()
+
+            if process.returncode == 0:
+                yield f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 数据更新成功完成\n"
+            else:
+                yield f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 数据更新失败，退出码: {process.returncode}\n"
+
+        except Exception as e:
+            yield f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 执行异常: {str(e)}\n"
+
+    return Response(generate(), mimetype='text/plain; charset=utf-8')
 
 
 if __name__ == '__main__':

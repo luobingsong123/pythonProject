@@ -913,6 +913,10 @@
                 <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">show_chart</span>
                 遍历回测
             </button>
+            <button class="tab" data-tab="data-update">
+                <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">sync</span>
+                数据更新
+            </button>
         </div>
     </div>
 
@@ -1089,6 +1093,46 @@
             </div>
         </div>
 
+        <!-- Data Update Panel -->
+        <div id="data-update-panel" class="tab-panel">
+            <div class="card" style="max-width: 800px; margin: 0 auto;">
+                <div class="card-header">
+                    <span class="material-icons" style="font-size: 24px; color: #1976d2;">sync</span>
+                    <span class="card-title">市场数据更新</span>
+                </div>
+                <div class="card-content">
+                    <div style="margin-bottom: 24px;">
+                        <p style="color: rgba(0,0,0,0.6); margin-bottom: 16px; line-height: 1.6;">
+                            点击下方按钮将更新股票日线数据和5分钟线数据。数据来源为 Baostock，更新范围从数据库中最新的日期到最新的交易日。
+                        </p>
+                        <div style="background: #fff3e0; padding: 12px 16px; border-radius: 4px; border-left: 4px solid #ff9800; margin-bottom: 20px;">
+                            <span class="material-icons" style="font-size: 18px; vertical-align: middle; color: #ff9800; margin-right: 8px;">warning</span>
+                            <span style="color: #e65100; font-size: 13px;">更新过程可能需要较长时间，请耐心等待。更新期间请勿关闭页面。</span>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 24px;">
+                        <button id="update-data-btn" class="btn btn-primary" style="padding: 12px 32px;">
+                            <span class="material-icons" style="font-size: 20px;">play_arrow</span>
+                            开始更新
+                        </button>
+                        <div id="update-status" style="display: none; align-items: center; gap: 8px;">
+                            <span class="material-icons" style="animation: spin 1s linear infinite; color: #1976d2;">refresh</span>
+                            <span id="update-status-text" style="color: #1976d2; font-weight: 500;">正在更新...</span>
+                        </div>
+                    </div>
+
+                    <div id="update-result" style="display: none;">
+                        <div style="margin-bottom: 12px;">
+                            <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px; color: rgba(0,0,0,0.54);">history</span>
+                            <span style="font-size: 14px; color: rgba(0,0,0,0.87); font-weight: 500;">更新日志</span>
+                        </div>
+                        <div id="update-log" style="background: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 16px; max-height: 400px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; line-height: 1.8; white-space: pre-wrap;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Backtrader Panel -->
         <div id="backtrader-panel" class="tab-panel">
             <div class="backtrader-layout">
@@ -1161,6 +1205,7 @@
             initTabs();
             initTimeBasedPanel();
             initBacktraderPanel();
+            initDataUpdatePanel();
             initKlineChart();
 
             window.addEventListener('resize', function() {
@@ -1708,6 +1753,72 @@
                 `;
                 tbody.appendChild(row);
             });
+        }
+
+        // ============ Data Update Panel ============
+        function initDataUpdatePanel() {
+            document.getElementById('update-data-btn').addEventListener('click', function() {
+                startDataUpdate();
+            });
+        }
+
+        async function startDataUpdate() {
+            const btn = document.getElementById('update-data-btn');
+            const statusDiv = document.getElementById('update-status');
+            const statusText = document.getElementById('update-status-text');
+            const resultDiv = document.getElementById('update-result');
+            const logDiv = document.getElementById('update-log');
+
+            // 禁用按钮，显示状态
+            btn.disabled = true;
+            statusDiv.style.display = 'flex';
+            resultDiv.style.display = 'none';
+            statusText.textContent = '正在连接服务器...';
+
+            try {
+                const response = await fetch('/api/update_market_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let result = '';
+
+                statusText.textContent = '正在更新数据...';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    result += chunk;
+
+                    // 更新日志显示
+                    resultDiv.style.display = 'block';
+                    logDiv.textContent = result;
+                    logDiv.scrollTop = logDiv.scrollHeight;
+                }
+
+                statusDiv.style.display = 'none';
+                btn.disabled = false;
+
+                // 显示完成状态
+                resultDiv.style.display = 'block';
+                if (result.includes('成功') || result.includes('完成')) {
+                    logDiv.innerHTML = result + '\n\n<span style="color: #2e7d32; font-weight: bold;">✓ 数据更新完成</span>';
+                } else {
+                    logDiv.innerHTML = result + '\n\n<span style="color: #d32f2f; font-weight: bold;">✗ 数据更新可能存在问题，请检查日志</span>';
+                }
+
+            } catch (error) {
+                statusDiv.style.display = 'none';
+                btn.disabled = false;
+                resultDiv.style.display = 'block';
+                logDiv.innerHTML = `<span style="color: #d32f2f; font-weight: bold;">网络错误: ${error.message}</span>`;
+            }
         }
 
         // ============ Backtrader Panel ============
