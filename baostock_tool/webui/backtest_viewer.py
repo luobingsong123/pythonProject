@@ -685,4 +685,5 @@ def get_daily_records():
 
 if __name__ == '__main__':
     web_config = config.get_web_config()
-    app.run(debug=True, host=web_config.get('host', '0.0.0.0'), port=5002)
+    # host='0.0.0.0' 表示监听所有网络接口，同时支持 127.0.0.1 和本地IP访问
+    app.run(debug=True, host='0.0.0.0', port=5001)

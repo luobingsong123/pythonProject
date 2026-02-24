@@ -7,14 +7,17 @@
 from .base_strategy import BaseStrategy, Position
 from .value_strategy_time import ValueStrategyTimeBased
 from .ma_strategy_time import MAStrategyTimeBased
+from .codebuddy_st_time import CodeBuddyStrategyTimeBased
 
 
 # 策略注册表
 STRATEGY_REGISTRY = {
     'value': ValueStrategyTimeBased,
     'ma': MAStrategyTimeBased,
+    'codebuddy': CodeBuddyStrategyTimeBased,
     'ValueStrategy': ValueStrategyTimeBased,
     'MAStrategy': MAStrategyTimeBased,
+    'CodeBuddyStrategy': CodeBuddyStrategyTimeBased,
 }
 
 
@@ -50,6 +53,7 @@ def list_strategies() -> dict:
     return {
         'value': ValueStrategyTimeBased,
         'ma': MAStrategyTimeBased,
+        'codebuddy': CodeBuddyStrategyTimeBased,
     }
 
 
@@ -73,6 +77,7 @@ __all__ = [
     'Position',
     'ValueStrategyTimeBased',
     'MAStrategyTimeBased',
+    'CodeBuddyStrategyTimeBased',
     'get_strategy',
     'list_strategies',
     'register_strategy',

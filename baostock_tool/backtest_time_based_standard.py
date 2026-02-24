@@ -1105,9 +1105,13 @@ def main():
     
     # 方式1：使用 value_strategy_time_1000 策略
     # from utils.strategies.value_strategy_time_1000 import ValueStrategyTimeBased
-    from utils.strategies.value_strategy_time import ValueStrategyTimeBased
-    strategy = ValueStrategyTimeBased()
+    # from utils.strategies.value_strategy_time import ValueStrategyTimeBased
+    # strategy = ValueStrategyTimeBased()
+    # backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
+    from utils.strategies import get_strategy
+    strategy = get_strategy('codebuddy')
     backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
+
     
     # 方式2：使用默认策略（价值策略）
     # backtester = TimeBasedBacktester(BACKTEST_CONFIG)
