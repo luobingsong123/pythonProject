@@ -4,10 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>回测记录查看器</title>
-    <!-- 使用国内CDN镜像加速访问 -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet" crossorigin="anonymous">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -849,6 +848,52 @@
                 min-width: 80px;
             }
         }
+
+        /* Pagination Styles */
+        .pagination-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 12px;
+            border-top: 1px solid #e0e0e0;
+            background: #fafafa;
+            gap: 8px;
+        }
+
+        .pagination-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border: 1px solid #e0e0e0;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .pagination-btn:hover:not(:disabled) {
+            background: #e3f2fd;
+            border-color: #1976d2;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-btn .material-icons {
+            font-size: 18px;
+            color: #1976d2;
+        }
+
+        .pagination-info {
+            font-size: 12px;
+            color: rgba(0, 0, 0, 0.6);
+            min-width: 50px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -1066,6 +1111,16 @@
                             <span class="material-icons empty-state-icon">inbox</span>
                             <div>请选择策略并查询</div>
                         </div>
+                    </div>
+                    <!-- 分页控件 -->
+                    <div class="pagination-container" id="bt-pagination" style="display: none;">
+                        <button class="pagination-btn" id="bt-prev-page" disabled>
+                            <span class="material-icons">chevron_left</span>
+                        </button>
+                        <span class="pagination-info" id="bt-page-info">1/1</span>
+                        <button class="pagination-btn" id="bt-next-page" disabled>
+                            <span class="material-icons">chevron_right</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1643,16 +1698,38 @@
         }
 
         // ============ Backtrader Panel ============
+        let btCurrentPage = 1;
+        let btTotalPages = 1;
+        let btSearchStrategy = '';
+        let btSearchStockCode = '';
+
         function initBacktraderPanel() {
             loadBtStrategies();
 
             document.getElementById('bt-search-btn').addEventListener('click', function() {
+                btCurrentPage = 1;
                 searchBtStocks();
             });
 
             document.getElementById('bt-stock-search').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
+                    btCurrentPage = 1;
                     searchBtStocks();
+                }
+            });
+
+            // 分页按钮事件
+            document.getElementById('bt-prev-page').addEventListener('click', function() {
+                if (btCurrentPage > 1) {
+                    btCurrentPage--;
+                    loadBtStocksPage();
+                }
+            });
+
+            document.getElementById('bt-next-page').addEventListener('click', function() {
+                if (btCurrentPage < btTotalPages) {
+                    btCurrentPage++;
+                    loadBtStocksPage();
                 }
             });
         }
@@ -1684,31 +1761,61 @@
 
             if (!strategy) {
                 container.innerHTML = `<div class="error-message">请先选择策略</div>`;
+                document.getElementById('bt-pagination').style.display = 'none';
                 return;
             }
+
+            // 保存搜索参数
+            btSearchStrategy = strategy;
+            btSearchStockCode = stockCode;
+
+            container.innerHTML = `<div class="loading">加载中...</div>`;
+
+            await loadBtStocksPage();
+        }
+
+        async function loadBtStocksPage() {
+            const container = document.getElementById('bt-stocks-list');
+            const pagination = document.getElementById('bt-pagination');
 
             container.innerHTML = `<div class="loading">加载中...</div>`;
 
             try {
-                let url = `/api/stocks?strategy=${encodeURIComponent(strategy)}`;
-                if (stockCode) {
-                    url += `&stock_code=${encodeURIComponent(stockCode)}`;
+                let url = `/api/stocks?strategy=${encodeURIComponent(btSearchStrategy)}&page=${btCurrentPage}&page_size=13`;
+                if (btSearchStockCode) {
+                    url += `&stock_code=${encodeURIComponent(btSearchStockCode)}`;
                 }
 
                 const response = await fetch(url);
                 const result = await response.json();
 
                 if (result.success) {
+                    const paginationData = result.pagination;
+                    btTotalPages = paginationData.total_pages;
+
                     if (result.data.length === 0) {
                         container.innerHTML = `<div class="empty-state"><span class="material-icons empty-state-icon">search_off</span><div>未找到相关股票</div></div>`;
+                        pagination.style.display = 'none';
                     } else {
                         renderBtStocksList(result.data);
+                        
+                        // 更新分页控件
+                        if (btTotalPages > 1) {
+                            pagination.style.display = 'flex';
+                            document.getElementById('bt-page-info').textContent = `${btCurrentPage}/${btTotalPages} (${paginationData.total}条)`;
+                            document.getElementById('bt-prev-page').disabled = !paginationData.has_prev;
+                            document.getElementById('bt-next-page').disabled = !paginationData.has_next;
+                        } else {
+                            pagination.style.display = 'none';
+                        }
                     }
                 } else {
                     container.innerHTML = `<div class="error-message">${result.error}</div>`;
+                    pagination.style.display = 'none';
                 }
             } catch (error) {
                 container.innerHTML = `<div class="error-message">网络错误: ${error.message}</div>`;
+                pagination.style.display = 'none';
             }
         }
 

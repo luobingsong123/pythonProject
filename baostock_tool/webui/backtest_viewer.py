@@ -29,7 +29,7 @@ reader = TriggerPointsReader()
 
 def get_kline_data_optimized(stock_code, market, buy_date, sell_date=None):
     """
-    从数据库获取股票K线数据（复用数据库连接）
+    从数据库获取股票K线数据（优化版本）
     参数:
         stock_code: 证券代码
         market: 市场（sh/sz/bj）
@@ -48,39 +48,42 @@ def get_kline_data_optimized(stock_code, market, buy_date, sell_date=None):
             query_start_date = (buy_dt - timedelta(days=60)).strftime("%Y-%m-%d")
             query_end_date = (buy_dt + timedelta(days=60)).strftime("%Y-%m-%d")
 
-        # 使用复用的数据库引擎
+        # 优化查询：使用索引提示，只查询必要字段
+        # idx_market_code_date 索引覆盖 (market, code_int, date)，配合分区裁剪
         query = f"""
         SELECT date, open, high, low, close, volume, amount, pctChg
-        FROM stock_daily_data
+        FROM stock_daily_data USE INDEX (idx_market_code_date)
         WHERE market = '{market}'
-          AND code_int = '{int(stock_code)}'
+          AND code_int = {int(stock_code)}
           AND frequency = 'd'
           AND date >= '{query_start_date}'
           AND date <= '{query_end_date}'
         ORDER BY date
         """
 
-        df = pd.read_sql(query, db_manager.engine)
+        # 使用原生连接执行查询，避免pandas开销
+        with db_manager.engine.connect() as conn:
+            df = pd.read_sql(query, conn)
 
         if df.empty:
             return []
 
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
-        df = df.ffill()
+        # 优化数据处理：使用向量化操作替代循环
+        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+        df = df.fillna(0)
 
-        result = []
-        for idx, row in df.iterrows():
-            result.append({
-                'date': idx.strftime('%Y-%m-%d'),
-                'open': float(row['open']) if pd.notna(row['open']) else 0,
-                'high': float(row['high']) if pd.notna(row['high']) else 0,
-                'low': float(row['low']) if pd.notna(row['low']) else 0,
-                'close': float(row['close']) if pd.notna(row['close']) else 0,
-                'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
-                'amount': float(row['amount']) if pd.notna(row['amount']) else 0,
-                'pctChg': float(row['pctChg']) if pd.notna(row['pctChg']) else 0
-            })
+        # 直接转换为字典列表，避免逐行迭代
+        result = df.to_dict('records')
+
+        # 转换数值类型
+        for item in result:
+            item['open'] = float(item['open'])
+            item['high'] = float(item['high'])
+            item['low'] = float(item['low'])
+            item['close'] = float(item['close'])
+            item['volume'] = int(item['volume'])
+            item['amount'] = float(item['amount'])
+            item['pctChg'] = float(item['pctChg'])
 
         return result
 
@@ -226,10 +229,12 @@ def get_summary_detail():
 
 @app.route('/api/stocks')
 def get_stocks():
-    """获取指定策略的证券代码列表"""
+    """获取指定策略的证券代码列表，支持分页"""
     try:
         strategy_name = request.args.get('strategy', '')
         stock_code_input = request.args.get('stock_code', '')
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 14))
 
         stock_code = None
         market = None
@@ -258,9 +263,24 @@ def get_stocks():
         stocks = list(set([f"{r.market}.{r.stock_code}" for r in results]))
         stocks.sort()
 
+        # 计算分页
+        total = len(stocks)
+        total_pages = (total + page_size - 1) // page_size
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        stocks_page = stocks[start_idx:end_idx]
+
         return jsonify({
             'success': True,
-            'data': stocks
+            'data': stocks_page,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+                'total_pages': total_pages,
+                'has_prev': page > 1,
+                'has_next': page < total_pages
+            }
         })
     except Exception as e:
         return jsonify({
