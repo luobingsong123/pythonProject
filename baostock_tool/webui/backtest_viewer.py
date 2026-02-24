@@ -23,7 +23,10 @@ from baostock_tool.utils.trigger_points_reader import TriggerPointsReader
 from baostock_tool.webui.app import determine_market_by_code
 from baostock_tool import config
 
-app = Flask(__name__)
+# 配置静态文件和模板路径
+app = Flask(__name__,
+            static_folder='static',
+            template_folder='templates')
 
 # 初始化数据库管理器和数据读取器
 db_manager = StrategyTriggerDB()
