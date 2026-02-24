@@ -183,13 +183,15 @@ class BaostockDataCollector:
         try:
             market, code_int = self.parse_stock_code(code)
             
-            # baostock query_adjust_factor 返回字段: code, tradeDate, foreAdjustFactor, backAdjustFactor, dividendRate
+            # baostock query_adjust_factor 返回字段: code, dividOperateDate, foreAdjustFactor, backAdjustFactor, adjustFactor
             logger.debug(f"复权因子DataFrame字段: {factor_df.columns.tolist()}")
             
             data_tuples = []
             for _, row in factor_df.iterrows():
-                # baostock复权因子接口返回的日期字段名是 'tradeDate'
-                if 'tradeDate' in row:
+                # baostock复权因子接口返回的日期字段名是 'dividOperateDate'
+                if 'dividOperateDate' in row:
+                    date = row['dividOperateDate']
+                elif 'tradeDate' in row:
                     date = row['tradeDate']
                 elif 'date' in row:
                     date = row['date']
