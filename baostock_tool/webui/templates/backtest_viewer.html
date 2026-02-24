@@ -1183,6 +1183,19 @@
                         panel.classList.remove('active');
                     });
                     document.getElementById(`${currentTab}-panel`).classList.add('active');
+                    
+                    // 切换到 Backtrader tab 时重新调整图表尺寸
+                    if (currentTab === 'backtrader' && klineChart) {
+                        setTimeout(() => {
+                            klineChart.resize();
+                        }, 100);
+                    }
+                    // 切换到 time-based tab 时重新调整收益图表尺寸
+                    if (currentTab === 'time-based' && tbProfitChart) {
+                        setTimeout(() => {
+                            tbProfitChart.resize();
+                        }, 100);
+                    }
                 });
             });
         }
@@ -2098,6 +2111,10 @@
             };
 
             klineChart.setOption(option, true);
+            // 确保 K 线图正确渲染（解决隐藏容器初始化问题）
+            setTimeout(() => {
+                klineChart.resize();
+            }, 50);
         }
     </script>
 
