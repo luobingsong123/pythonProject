@@ -75,9 +75,9 @@ body {
 
 /* Main Content */
 .main-content {
-    padding: 16px;
-    max-width: 1400px;
-    margin: 0 auto;
+    padding: 8px 8px 8px 16px;
+    max-width: 100%;
+    margin: 0;
 }
 
 /* Tab Panels */
@@ -297,9 +297,9 @@ body {
 /* Backtrader Panel Layout */
 .backtrader-layout {
     display: grid;
-    grid-template-columns: 280px 280px 1fr;
-    gap: 24px;
-    height: calc(100vh - 160px);
+    grid-template-columns: 240px 240px 1fr;
+    gap: 12px;
+    height: calc(100vh - 100px);
 }
 
 .panel {
@@ -520,9 +520,9 @@ body {
 /* Time Based Panel Styles */
 .tb-layout {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 260px 1fr;
     gap: 12px;
-    height: calc(100vh - 120px);
+    height: calc(100vh - 100px);
 }
 
 .tb-left-column {
@@ -899,9 +899,9 @@ body {
 /* Kronos Panel Styles */
 .kronos-layout {
     display: grid;
-    grid-template-columns: 320px 1fr;
-    gap: 16px;
-    height: calc(100vh - 120px);
+    grid-template-columns: 260px 1fr;
+    gap: 12px;
+    height: calc(100vh - 100px);
 }
 
 .kronos-params-panel {
@@ -1034,13 +1034,17 @@ body {
         grid-template-columns: 1fr;
         height: auto;
     }
-    
+
     .kronos-chart-panel .panel {
         min-height: 400px;
     }
-    
+
     .kronos-summary-grid {
         grid-template-columns: repeat(2, 1fr);
+    }
+
+    .main-content {
+        padding: 8px;
     }
 }
 
@@ -1048,12 +1052,24 @@ body {
     .kronos-summary-grid {
         grid-template-columns: 1fr 1fr;
     }
-    
+
     .kronos-stat-item {
         padding: 8px;
     }
-    
+
     .kronos-stat-value {
         font-size: 16px;
     }
+}
+
+/* Strategy Selection Panel Styles */
+.strategy-selection-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    height: calc(100vh - 100px);
+}
+
+.strategy-selection-layout .panel {
+    min-height: 400px;
 }

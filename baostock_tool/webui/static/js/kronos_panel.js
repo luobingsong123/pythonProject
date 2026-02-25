@@ -271,21 +271,31 @@ function renderKronosChart(data) {
     // K线数据 [open, close, low, high]
     const values = allData.map(item => {
         if (!item) return [0, 0, 0, 0];
-        return [item.open || 0, item.close || 0, item.low || 0, item.high || 0];
+        const open = (item.open !== null && item.open !== undefined) ? item.open : 0;
+        const close = (item.close !== null && item.close !== undefined) ? item.close : 0;
+        const low = (item.low !== null && item.low !== undefined) ? item.low : 0;
+        const high = (item.high !== null && item.high !== undefined) ? item.high : 0;
+        return [open, close, low, high];
     });
     console.log('📊 values sample:', values.slice(0, 3));
+    console.log('📊 values 最后5个:', values.slice(-5));
+    console.log('📊 检查 values 中是否有 null:', values.filter(v => v.some(x => x === null || x === undefined)).length);
     
     // 成交量数据
     const volumes = allData.map((item, index) => {
         if (!item) return { value: 0, itemStyle: { color: '#2e7d32' } };
+        const vol = item.volume;
+        // 确保 volume 不是 null、undefined 或 NaN
+        const volumeValue = (vol !== null && vol !== undefined && !isNaN(vol)) ? vol : 0;
         return {
-            value: item.volume || 0,
+            value: volumeValue,
             itemStyle: {
                 color: values[index][1] >= values[index][0] ? '#d32f2f' : '#2e7d32'
             }
         };
     });
     console.log('📊 volumes sample:', volumes.slice(0, 3));
+    console.log('📊 检查 volumes 中是否有 null:', volumes.filter(v => v.value === null || v.value === undefined).length);
     
     // 预测分界线索引
     const boundaryIndex = historical.length - 1;
@@ -363,8 +373,8 @@ function renderKronosChart(data) {
             { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } }
         ],
         dataZoom: [
-            { type: 'inside', xAxisIndex: [0, 1], start: Math.max(0, (1 - predDays * 3 / dates.length) * 100), end: 100 },
-            { show: true, xAxisIndex: [0, 1], type: 'slider', top: '92%', start: Math.max(0, (1 - predDays * 3 / dates.length) * 100), end: 100 }
+            { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
+            { show: true, xAxisIndex: [0, 1], type: 'slider', top: '92%', start: 0, end: 100 }
         ],
         series: [
             {
@@ -390,7 +400,7 @@ function renderKronosChart(data) {
             {
                 name: '预测K线',
                 type: 'candlestick',
-                data: new Array(historical.length - 1).fill(null).concat(values.slice(boundaryIndex)),
+                data: new Array(historical.length - 1).fill('-').concat(values.slice(boundaryIndex)),
                 itemStyle: { 
                     color: '#ff9800', 
                     color0: '#ffa726', 
@@ -403,7 +413,7 @@ function renderKronosChart(data) {
                 type: 'bar', 
                 xAxisIndex: 1, 
                 yAxisIndex: 1, 
-                data: volumes 
+                data: volumes.map(v => v.value)  // 只传数值，不传对象
             }
         ]
     };

@@ -34,6 +34,32 @@ app = Flask(__name__,
 db_manager = StrategyTriggerDB()
 reader = TriggerPointsReader()
 
+# 全局证券代码列表（启动时加载）
+ALL_STOCK_CODES = []
+
+def load_all_stock_codes():
+    """
+    启动时加载所有证券代码到内存
+    """
+    global ALL_STOCK_CODES
+    try:
+        print("📥 正在加载证券代码列表...")
+        query = """
+        SELECT DISTINCT code_int
+        FROM stock_basic_info
+        ORDER BY code_int
+        """
+        df = pd.read_sql(query, db_manager.engine)
+        # 转换为字符串并补零到6位
+        ALL_STOCK_CODES = df['code_int'].astype(str).str.zfill(6).tolist()
+        print(f"✅ 已加载 {len(ALL_STOCK_CODES)} 个证券代码")
+    except Exception as e:
+        print(f"❌ 加载证券代码失败: {str(e)}")
+        ALL_STOCK_CODES = []
+
+# 启动时加载
+load_all_stock_codes()
+
 
 def get_kline_data_optimized(stock_code, market, buy_date, sell_date=None):
     """
@@ -753,45 +779,30 @@ def stock_search():
     """
     股票代码联想搜索API
     参数:
-        - keyword: 搜索关键词
+        - keyword: 搜索关键词（仅支持证券代码）
     返回:
-        - 最多5个匹配的股票代码
+        - 最多5个匹配的股票代码（补零到6位）
     """
     try:
         keyword = request.args.get('keyword', '').strip()
         if not keyword:
             return jsonify({'success': True, 'data': []})
 
-        # 尝试将关键词转换为数字
-        try:
-            code_num = int(keyword)
-            query = f"""
-            SELECT DISTINCT code_int, name, market
-            FROM stock_basic_info
-            WHERE code_int LIKE '{code_num}%'
-            ORDER BY code_int
-            LIMIT 5
-            """
-        except ValueError:
-            # 如果不是数字，按名称搜索
-            query = f"""
-            SELECT DISTINCT code_int, name, market
-            FROM stock_basic_info
-            WHERE name LIKE '%{keyword}%'
-            ORDER BY code_int
-            LIMIT 5
-            """
+        # 只支持数字搜索
+        if not keyword.isdigit():
+            return jsonify({'success': True, 'data': []})
 
-        df = pd.read_sql(query, db_manager.engine)
-        results = []
-        for _, row in df.iterrows():
-            code_str = str(row['code_int']).zfill(6)
-            results.append({
-                'code': code_str,
-                'name': row['name'],
-                'market': row['market'],
-                'display': f"{code_str} {row['name']}"
-            })
+        # 从内存中匹配证券代码
+        # 直接用输入的关键词匹配（代码已补零到6位）
+        # 如输入"0009"匹配"0009xx"，输入"9"匹配"000009"、"000019"等
+        keyword_padded = keyword.zfill(6)
+        matches = [code for code in ALL_STOCK_CODES if code.startswith(keyword) or code.startswith(keyword_padded)]
+        
+        # 去重并排序
+        matches = sorted(set(matches))
+        
+        # 最多返回5个结果
+        results = [{'code': code, 'display': code} for code in matches[:5]]
 
         return jsonify({'success': True, 'data': results})
     except Exception as e:
