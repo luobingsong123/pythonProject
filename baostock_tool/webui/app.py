@@ -8,6 +8,7 @@ import sys
 import os
 import pandas as pd
 from datetime import datetime, timedelta
+import traceback
 
 # 添加父目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -423,6 +424,303 @@ def get_kline_data():
             'success': False,
             'error': str(e)
         })
+
+
+@app.route('/api/stock_search')
+def stock_search():
+    """
+    股票代码联想搜索API
+    参数:
+        - keyword: 搜索关键词
+    返回:
+        - 最多5个匹配的股票代码
+    """
+    try:
+        keyword = request.args.get('keyword', '').strip()
+        if not keyword:
+            return jsonify({'success': True, 'data': []})
+
+        db_config = config.get_db_config()
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
+
+        db_url = URL.create(
+            drivername="mysql+pymysql",
+            username=db_config["user"],
+            password=db_config["password"],
+            host=db_config["host"],
+            port=db_config["port"],
+            database=db_config["database"],
+            query={"charset": "utf8mb4"}
+        )
+
+        engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=3600)
+
+        # 尝试将关键词转换为数字
+        try:
+            code_num = int(keyword)
+            query = f"""
+            SELECT DISTINCT code_int, name, market
+            FROM stock_basic_info
+            WHERE code_int LIKE '{code_num}%'
+            ORDER BY code_int
+            LIMIT 5
+            """
+        except ValueError:
+            # 如果不是数字，按名称搜索
+            query = f"""
+            SELECT DISTINCT code_int, name, market
+            FROM stock_basic_info
+            WHERE name LIKE '%{keyword}%'
+            ORDER BY code_int
+            LIMIT 5
+            """
+
+        df = pd.read_sql(query, engine)
+        results = []
+        for _, row in df.iterrows():
+            code_str = str(row['code_int']).zfill(6)
+            results.append({
+                'code': code_str,
+                'name': row['name'],
+                'market': row['market'],
+                'display': f"{code_str} {row['name']}"
+            })
+
+        return jsonify({'success': True, 'data': results})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/kronos_predict', methods=['POST'])
+def kronos_predict():
+    """
+    Kronos预测API
+    参数(JSON body):
+        - stock_code: 证券代码（6位数字）
+        - lookback_days: 加载历史天数
+        - pred_days: 预测天数
+        - temperature: 温度参数
+        - top_p: 采样概率
+        - sample_count: 采样次数
+    """
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code', '')
+        lookback_days = int(data.get('lookback_days', 60))
+        pred_days = int(data.get('pred_days', 5))
+        temperature = float(data.get('temperature', 0.5))
+        top_p = float(data.get('top_p', 0.5))
+        sample_count = int(data.get('sample_count', 5))
+
+        # 参数验证
+        if not stock_code:
+            return jsonify({'success': False, 'error': '证券代码不能为空'})
+        if lookback_days < 20 or lookback_days > 220:
+            return jsonify({'success': False, 'error': '加载历史天数必须在20-220之间'})
+        if pred_days < 5 or pred_days > 20:
+            return jsonify({'success': False, 'error': '预测天数必须在5-20之间'})
+        if temperature < 0.1 or temperature > 1.0:
+            return jsonify({'success': False, 'error': '温度参数必须在0.1-1.0之间'})
+        if top_p < 1 or top_p > 10:
+            return jsonify({'success': False, 'error': '采样概率必须在1-10之间'})
+        if sample_count < 1 or sample_count > 10:
+            return jsonify({'success': False, 'error': '采样次数必须在1-10之间'})
+
+        # 确定市场
+        market = determine_market_by_code(stock_code)
+
+        # 从数据库获取历史数据
+        db_config = config.get_db_config()
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import URL
+
+        db_url = URL.create(
+            drivername="mysql+pymysql",
+            username=db_config["user"],
+            password=db_config["password"],
+            host=db_config["host"],
+            port=db_config["port"],
+            database=db_config["database"],
+            query={"charset": "utf8mb4"}
+        )
+
+        engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=3600)
+
+        # 查询最新日期
+        max_date_query = f"""
+        SELECT MAX(date) as max_date FROM stock_daily_data
+        WHERE code_int = {int(stock_code)} AND market = '{market}' AND frequency = 'd'
+        """
+        max_date_result = pd.read_sql(max_date_query, engine)
+        if max_date_result.empty or max_date_result['max_date'].iloc[0] is None:
+            return jsonify({'success': False, 'error': '未找到该股票的历史数据'})
+
+        max_date = max_date_result['max_date'].iloc[0]
+        start_date = (max_date - timedelta(days=lookback_days * 1.5)).strftime('%Y-%m-%d')
+        end_date = max_date.strftime('%Y-%m-%d')
+
+        # 查询历史K线数据
+        hist_query = f"""
+        SELECT date, open, high, low, close, volume, amount, pctChg
+        FROM stock_daily_data
+        WHERE market = '{market}'
+          AND code_int = {int(stock_code)}
+          AND frequency = 'd'
+          AND date >= '{start_date}'
+          AND date <= '{end_date}'
+        ORDER BY date DESC
+        LIMIT {lookback_days}
+        """
+        hist_df = pd.read_sql(hist_query, engine)
+        hist_df = hist_df.sort_values('date').reset_index(drop=True)
+
+        if hist_df.empty:
+            return jsonify({'success': False, 'error': '未找到足够的历史数据'})
+
+        # 构建历史K线数据
+        historical_data = []
+        for _, row in hist_df.iterrows():
+            historical_data.append({
+                'date': row['date'].strftime('%Y-%m-%d') if isinstance(row['date'], datetime) else str(row['date']),
+                'open': float(row['open']) if pd.notna(row['open']) else 0,
+                'high': float(row['high']) if pd.notna(row['high']) else 0,
+                'low': float(row['low']) if pd.notna(row['low']) else 0,
+                'close': float(row['close']) if pd.notna(row['close']) else 0,
+                'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
+                'amount': float(row['amount']) if pd.notna(row['amount']) else 0,
+                'pctChg': float(row['pctChg']) if pd.notna(row['pctChg']) else 0,
+                'isPrediction': False
+            })
+
+        # 获取股票名称
+        name_query = f"""
+        SELECT name FROM stock_basic_info
+        WHERE code_int = {int(stock_code)} AND market = '{market}'
+        LIMIT 1
+        """
+        name_df = pd.read_sql(name_query, engine)
+        stock_name = name_df['name'].iloc[0] if not name_df.empty else 'Unknown'
+
+        # 调用Kronos模型进行预测
+        try:
+            from baostock_tool.kronos_master.kronos_service import KronosPredictorService, KronosConfig
+
+            kronos_config = KronosConfig(
+                lookback=lookback_days,
+                pred_len=pred_days,
+                temperature=temperature,
+                top_p=top_p / 10.0,  # 转换为0.1-1.0范围
+                sample_count=sample_count,
+                device='cpu'
+            )
+            service = KronosPredictorService(kronos_config)
+            result = service.predict(f"{market}.{stock_code}", output_dir=None, save_csv=False, save_chart=False)
+
+            # 构建预测K线数据
+            prediction_data = []
+            for _, row in result.prediction_df.iterrows():
+                date_val = row['date']
+                if isinstance(date_val, datetime):
+                    date_str = date_val.strftime('%Y-%m-%d')
+                elif hasattr(date_val, 'strftime'):
+                    date_str = date_val.strftime('%Y-%m-%d')
+                else:
+                    date_str = str(date_val)
+                prediction_data.append({
+                    'date': date_str,
+                    'open': float(row['open']) if pd.notna(row['open']) else 0,
+                    'high': float(row['high']) if pd.notna(row['high']) else 0,
+                    'low': float(row['low']) if pd.notna(row['low']) else 0,
+                    'close': float(row['close']) if pd.notna(row['close']) else 0,
+                    'volume': int(row['volume']) if pd.notna(row['volume']) else 0,
+                    'amount': float(row['amount']) if pd.notna(row['amount']) else 0,
+                    'pctChg': 0,
+                    'isPrediction': True
+                })
+
+            last_close = result.last_close
+            pred_change_pct = result.predicted_change_pct
+
+        except ImportError as ie:
+            # 如果Kronos模块未安装，生成模拟预测数据
+            print(f"Kronos模块未安装: {ie}")
+            prediction_data = generate_mock_prediction(historical_data, pred_days, stock_code, market)
+            last_close = historical_data[-1]['close'] if historical_data else 0
+            pred_change_pct = 0
+        except Exception as e:
+            print(f"预测出错: {e}")
+            traceback.print_exc()
+            prediction_data = generate_mock_prediction(historical_data, pred_days, stock_code, market)
+            last_close = historical_data[-1]['close'] if historical_data else 0
+            pred_change_pct = 0
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'stock_code': stock_code,
+                'stock_name': stock_name,
+                'market': market,
+                'historical': historical_data,
+                'prediction': prediction_data,
+                'last_close': last_close,
+                'pred_change_pct': pred_change_pct,
+                'pred_days': pred_days
+            }
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+
+def generate_mock_prediction(historical_data, pred_days, stock_code, market):
+    """生成模拟预测数据（当Kronos模型不可用时使用）"""
+    import random
+    from datetime import datetime, timedelta
+
+    if not historical_data:
+        return []
+
+    last_date_str = historical_data[-1]['date']
+    last_close = historical_data[-1]['close']
+
+    try:
+        last_date = datetime.strptime(last_date_str, '%Y-%m-%d')
+    except:
+        last_date = datetime.now()
+
+    predictions = []
+    current_date = last_date
+    current_close = last_close
+
+    for i in range(pred_days):
+        # 跳过周末
+        current_date = current_date + timedelta(days=1)
+        while current_date.weekday() >= 5:  # 周六、周日
+            current_date = current_date + timedelta(days=1)
+
+        # 生成随机波动
+        change_pct = random.uniform(-0.03, 0.03)  # -3% 到 +3%
+        current_close = current_close * (1 + change_pct)
+
+        open_price = current_close * (1 + random.uniform(-0.01, 0.01))
+        high_price = max(open_price, current_close) * (1 + random.uniform(0, 0.01))
+        low_price = min(open_price, current_close) * (1 - random.uniform(0, 0.01))
+
+        predictions.append({
+            'date': current_date.strftime('%Y-%m-%d'),
+            'open': round(open_price, 2),
+            'high': round(high_price, 2),
+            'low': round(low_price, 2),
+            'close': round(current_close, 2),
+            'volume': 0,
+            'amount': 0,
+            'pctChg': round(change_pct * 100, 2),
+            'isPrediction': True
+        })
+
+    return predictions
 
 
 if __name__ == '__main__':

@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
     TimeBasedPanel.init();
     BacktraderPanel.init();
     DataUpdatePanel.init();
+    KronosPanel.init();
     
     // 初始化 K 线图
     KlineChart.init();
@@ -30,6 +31,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     profitChart.resize();
                 }
             }
+            if (tab === 'kronos-predict') {
+                // 切换到Kronos面板时确保图表已初始化
+                if (!window.KronosPanel.getChart()) {
+                    window.KronosPanel.reinitChart();
+                }
+                KronosPanel.resize();
+            }
         }, 100);
     });
     
@@ -46,5 +54,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (profitChart) {
             profitChart.resize();
         }
+        KronosPanel.resize();
     });
 });

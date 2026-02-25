@@ -30,6 +30,10 @@
                 <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">show_chart</span>
                 遍历回测
             </button>
+            <button class="tab" data-tab="kronos-predict">
+                <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">psychology</span>
+                清华大模型预测
+            </button>
             <button class="tab" data-tab="data-update">
                 <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">sync</span>
                 数据更新
@@ -249,6 +253,132 @@
             </div>
         </div>
 
+        <!-- Kronos Predict Panel -->
+        <div id="kronos-predict-panel" class="tab-panel">
+            <div class="kronos-layout">
+                <!-- 参数输入面板 -->
+                <div class="kronos-params-panel">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">tune</span>
+                                预测参数设置
+                            </div>
+                        </div>
+                        <div class="panel-content">
+                            <!-- 证券代码 -->
+                            <div class="form-control">
+                                <label class="form-label">证券代码</label>
+                                <div class="autocomplete-wrapper">
+                                    <input type="text" id="kronos-stock-code" class="form-input" placeholder="输入代码或名称搜索" autocomplete="off">
+                                    <div id="kronos-suggestions" class="autocomplete-suggestions"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- 加载历史天数 -->
+                            <div class="form-control">
+                                <label class="form-label">加载历史天数</label>
+                                <input type="number" id="kronos-lookback" class="form-input" value="60" min="20" max="220">
+                                <div class="form-hint">范围: 20-220天</div>
+                            </div>
+                            
+                            <!-- 预测天数 -->
+                            <div class="form-control">
+                                <label class="form-label">预测天数</label>
+                                <input type="number" id="kronos-pred-days" class="form-input" value="5" min="5" max="20">
+                                <div class="form-hint">范围: 5-20天</div>
+                            </div>
+                            
+                            <!-- 温度参数 -->
+                            <div class="form-control">
+                                <label class="form-label">温度参数</label>
+                                <select id="kronos-temperature" class="form-select">
+                                    <option value="0.1">0.1 (低随机性)</option>
+                                    <option value="0.2">0.2</option>
+                                    <option value="0.3">0.3</option>
+                                    <option value="0.4">0.4</option>
+                                    <option value="0.5" selected>0.5 (默认)</option>
+                                    <option value="0.6">0.6</option>
+                                    <option value="0.7">0.7</option>
+                                    <option value="0.8">0.8</option>
+                                    <option value="0.9">0.9</option>
+                                    <option value="1.0">1.0 (高随机性)</option>
+                                </select>
+                            </div>
+                            
+                            <!-- 采样概率 -->
+                            <div class="form-control">
+                                <label class="form-label">采样概率 (top_p)</label>
+                                <input type="number" id="kronos-top-p" class="form-input" value="5" min="1" max="10">
+                                <div class="form-hint">范围: 1-10 (对应0.1-1.0)</div>
+                            </div>
+                            
+                            <!-- 采样次数 -->
+                            <div class="form-control">
+                                <label class="form-label">采样次数</label>
+                                <input type="number" id="kronos-sample-count" class="form-input" value="5" min="1" max="10">
+                                <div class="form-hint">范围: 1-10次</div>
+                            </div>
+                            
+                            <!-- 预测按钮 -->
+                            <button id="kronos-predict-btn" class="btn btn-primary" style="width: 100%; margin-top: 16px; padding: 12px;">
+                                <span class="material-icons" style="font-size: 20px;">psychology</span>
+                                开始预测
+                            </button>
+                            
+                            <!-- 预测状态 -->
+                            <div id="kronos-status" style="display: none; margin-top: 16px; text-align: center;">
+                                <span class="material-icons" style="animation: spin 1s linear infinite; color: #1976d2;">refresh</span>
+                                <span id="kronos-status-text" style="color: #1976d2; margin-left: 8px;">正在预测...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- K线图展示面板 -->
+                <div class="kronos-chart-panel">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">candlestick_chart</span>
+                                K线预测图
+                                <span id="kronos-chart-title" style="font-size: 12px; color: rgba(0,0,0,0.54); margin-left: 8px;"></span>
+                            </div>
+                        </div>
+                        <div class="panel-content" style="flex: 1; padding: 8px; min-height: 400px;">
+                            <div id="kronos-kline-chart" style="width: 100%; height: 100%; min-height: 500px;"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 预测结果摘要 -->
+                    <div id="kronos-summary" class="kronos-summary" style="display: none;">
+                        <div class="kronos-summary-title">
+                            <span class="material-icons" style="font-size: 18px; vertical-align: middle; margin-right: 6px;">analytics</span>
+                            预测结果摘要
+                        </div>
+                        <div class="kronos-summary-grid">
+                            <div class="kronos-stat-item">
+                                <div class="kronos-stat-label">最新收盘价</div>
+                                <div class="kronos-stat-value" id="kronos-last-close">-</div>
+                            </div>
+                            <div class="kronos-stat-item">
+                                <div class="kronos-stat-label">预测涨跌幅</div>
+                                <div class="kronos-stat-value" id="kronos-change-pct">-</div>
+                            </div>
+                            <div class="kronos-stat-item">
+                                <div class="kronos-stat-label">预测天数</div>
+                                <div class="kronos-stat-value" id="kronos-pred-days-display">-</div>
+                            </div>
+                            <div class="kronos-stat-item">
+                                <div class="kronos-stat-label">历史数据天数</div>
+                                <div class="kronos-stat-value" id="kronos-hist-days">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Backtrader Panel -->
         <div id="backtrader-panel" class="tab-panel">
             <div class="backtrader-layout">
@@ -317,6 +447,7 @@
     <script src="{{ url_for('static', filename='js/backtrader_panel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/data_update_panel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/kline_chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/kronos_panel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
