@@ -47,7 +47,7 @@ function initBacktraderPanel() {
  */
 async function loadBtStrategies() {
     try {
-        const response = await fetch('/api/strategies?backtest_framework=backtrader');
+        const response = await fetch('/api/strategies');
         const result = await response.json();
 
         if (result.success) {
