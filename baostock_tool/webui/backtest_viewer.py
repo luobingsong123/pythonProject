@@ -243,31 +243,25 @@ def get_stocks():
         page_size = int(request.args.get('page_size', 14))
 
         stock_code = None
-        market = None
+        market_filter = None
 
         if stock_code_input:
             if '.' in stock_code_input:
                 parts = stock_code_input.split('.')
-                market = parts[0]
+                market_filter = parts[0]
                 stock_code = parts[1]
             else:
-                market = determine_market_by_code(stock_code_input)
+                market_filter = determine_market_by_code(stock_code_input)
                 stock_code = stock_code_input
 
             stock_code = str(stock_code).zfill(6)
 
-        if strategy_name:
-            results = db_manager.query_trigger_points(strategy_name=strategy_name)
-        else:
-            results = db_manager.query_trigger_points()
-
-        if stock_code:
-            results = [r for r in results if str(r.stock_code).zfill(6) == stock_code]
-            if market:
-                results = [r for r in results if r.market == market]
-
-        stocks = list(set([f"{r.market}.{r.stock_code}" for r in results]))
-        stocks.sort()
+        # 使用优化的查询方法，在数据库层面去重，避免传输大量JSON数据
+        stocks = db_manager.query_distinct_stocks(
+            strategy_name=strategy_name if strategy_name else None,
+            stock_code=stock_code,
+            market=market_filter
+        )
 
         # 计算分页
         total = len(stocks)

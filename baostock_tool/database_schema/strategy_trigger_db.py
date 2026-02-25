@@ -304,6 +304,51 @@ class StrategyTriggerDB:
             logger.debug(f"查询数据失败: {str(e)}")
             return []
 
+    def query_distinct_stocks(self, strategy_name=None, stock_code=None, market=None):
+        """
+        查询去重的股票代码列表（优化性能，不返回JSON字段）
+
+        Args:
+            strategy_name (str, optional): 策略名称
+            stock_code (str, optional): 证券代码
+            market (str, optional): 市场
+
+        Returns:
+            list: 去重后的股票代码列表，格式为 ["sh.600001", "sz.000001", ...]
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy import func
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            query = session.query(
+                StrategyTriggerPoints.market,
+                StrategyTriggerPoints.stock_code
+            )
+
+            if strategy_name:
+                query = query.filter(StrategyTriggerPoints.strategy_name == strategy_name)
+            if stock_code:
+                query = query.filter(StrategyTriggerPoints.stock_code == stock_code)
+            if market:
+                query = query.filter(StrategyTriggerPoints.market == market)
+
+            # 在数据库层面去重，只查询必要字段
+            query = query.distinct().order_by(
+                StrategyTriggerPoints.market,
+                StrategyTriggerPoints.stock_code
+            )
+
+            results = query.all()
+            session.close()
+
+            # 返回格式: ["sh.600001", "sz.000001", ...]
+            return [f"{r.market}.{r.stock_code}" for r in results]
+        except Exception as e:
+            logger.debug(f"查询股票列表失败: {str(e)}")
+            return []
+
     def get_statistics(self):
         """
         获取统计信息
