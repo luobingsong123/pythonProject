@@ -34,10 +34,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from datetime import datetime, timedelta
 from collections import defaultdict
-import config
-from utils.logger_utils import setup_logger
-from database_schema.strategy_trigger_db import StrategyTriggerDB
-from utils.strategies import BaseStrategy, Position, get_strategy, list_strategies
+from . import config
+from .utils.logger_utils import setup_logger
+from .database_schema.strategy_trigger_db import StrategyTriggerDB
+from .utils.strategies import BaseStrategy, Position, get_strategy, list_strategies
 import time
 import os
 import json
@@ -119,7 +119,7 @@ class TimeBasedBacktester:
         # 初始化策略
         if strategy is None:
             # 使用默认价值策略
-            from utils.strategies import ValueStrategyTimeBased
+            from .utils.strategies import ValueStrategyTimeBased
             self.strategy = ValueStrategyTimeBased()
         elif isinstance(strategy, str):
             # 传入策略名称字符串
@@ -1104,11 +1104,11 @@ def main():
     # ============ 使用方式示例 ============
     
     # 方式1：使用 value_strategy_time_1000 策略
-    # from utils.strategies.value_strategy_time_1000 import ValueStrategyTimeBased
-    # from utils.strategies.value_strategy_time import ValueStrategyTimeBased
+    # from .utils.strategies.value_strategy_time_1000 import ValueStrategyTimeBased
+    # from .utils.strategies.value_strategy_time import ValueStrategyTimeBased
     # strategy = ValueStrategyTimeBased()
     # backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
-    from utils.strategies import get_strategy
+    from .utils.strategies import get_strategy
     strategy = get_strategy('codebuddy')
     backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
 

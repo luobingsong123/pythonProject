@@ -3,18 +3,18 @@ import backtrader as bt
 import pandas_ta as ta
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
-import config
-from utils.logger_utils import setup_logger
+from baostock_tool import config
+from .utils.logger_utils import setup_logger
 import matplotlib.pyplot as plt
 import os
 # 导入CodeBuddy策略
-from utils.strategies.codebuddy_st import CodeBuddyStrategy
+from .utils.strategies.codebuddy_st import CodeBuddyStrategy
 # 导入CodeBuddy底分型策略
-from utils.strategies.codebuddy_st_dfx import CodeBuddyStrategyDFX
+from .utils.strategies.codebuddy_st_dfx import CodeBuddyStrategyDFX
 # 白马股波段策略
-from utils.strategies.value_strategy import ValueStrategy
+from .utils.strategies.value_strategy import ValueStrategy
 # 导入策略触发点位数据库管理
-from database_schema.strategy_trigger_db import StrategyTriggerDB
+from .database_schema.strategy_trigger_db import StrategyTriggerDB
 import time
 
 

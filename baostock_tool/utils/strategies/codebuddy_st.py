@@ -1,6 +1,6 @@
 import backtrader as bt
-from utils.logger_utils import setup_logger
-import config
+from ..logger_utils import setup_logger
+from baostock_tool import config
 
 log_config = config.get_log_config()
 logger = setup_logger(logger_name=__name__,
@@ -105,7 +105,7 @@ class CodeBuddyStrategy(bt.Strategy):
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             if self.p.printlog:
-                logger.warning(f'证券代码: {self.datas[0]}  订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
+                logger.warning(f'订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
 
         self.order = None
 

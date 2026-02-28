@@ -1,6 +1,6 @@
 import backtrader as bt
-from utils.logger_utils import setup_logger
-import config
+from ..logger_utils import setup_logger
+from baostock_tool import config
 
 log_config = config.get_log_config()
 logger = setup_logger(logger_name=__name__,

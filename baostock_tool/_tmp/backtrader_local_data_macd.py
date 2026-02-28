@@ -3,8 +3,8 @@ import backtrader as bt
 import pandas_ta as ta
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
-import config
-from utils.logger_utils import setup_logger
+from baostock_tool import config
+from .utils.logger_utils import setup_logger
 import matplotlib.pyplot as plt
 
 db_config_ = config.get_db_config()
@@ -433,3 +433,4 @@ def run_backtest():
 
 if __name__ == '__main__':
     run_backtest()
+
