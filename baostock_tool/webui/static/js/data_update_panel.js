@@ -36,6 +36,8 @@ async function startDataUpdate() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let result = '';
+        let lineCount = 0;
+        const MAX_LINES_BEFORE_CLEAR = 500;
 
         statusText.textContent = '正在更新数据...';
 
@@ -45,6 +47,17 @@ async function startDataUpdate() {
 
             const chunk = decoder.decode(value, { stream: true });
             result += chunk;
+            lineCount += (chunk.match(/\n/g) || []).length;
+
+            // 每500行清空一次日志显示
+            if (lineCount >= MAX_LINES_BEFORE_CLEAR) {
+                logDiv.textContent = result;
+                logDiv.scrollTop = logDiv.scrollHeight;
+                // 保留最后500行
+                const lines = result.split('\n');
+                result = lines.slice(-MAX_LINES_BEFORE_CLEAR).join('\n');
+                lineCount = MAX_LINES_BEFORE_CLEAR;
+            }
 
             // 更新日志显示
             resultDiv.style.display = 'block';

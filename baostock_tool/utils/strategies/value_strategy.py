@@ -42,6 +42,7 @@ class ValueStrategy(bt.Strategy):
         ('stop_loss', -0.5),          # 止损：浮亏10%
         ('take_profit', 0.20),         # 止盈：浮盈20%
         ('printlog', True),
+        ('stock_code', ''),            # 股票代码
     )
     
     def __init__(self):
@@ -334,7 +335,7 @@ class ValueStrategy(bt.Strategy):
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             if self.p.printlog:
-                logger.warning(f'证券代码: {self.stock_code} 订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
+                logger.warning(f'证券代码: {self.p.stock_code} 订单取消/拒绝 - 状态: {order.getstatusname()} - 日期: {self.datas[0].datetime.date()}')
 
         self.order = None
 

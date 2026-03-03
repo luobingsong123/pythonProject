@@ -7,12 +7,14 @@ let btTotalPages = 1;
 let btSearchStrategy = '';
 let btSearchStockCode = '';
 let currentStock = '';
+let btSearchTimeout = null;
 
 /**
  * 初始化面板
  */
 function initBacktraderPanel() {
     loadBtStrategies();
+    initBtStockCodeAutocomplete();
 
     document.getElementById('bt-search-btn').addEventListener('click', function() {
         btCurrentPage = 1;
@@ -40,6 +42,96 @@ function initBacktraderPanel() {
             loadBtStocksPage();
         }
     });
+}
+
+/**
+ * 初始化股票代码自动补全（只可输入数字 + 自动联想）
+ */
+function initBtStockCodeAutocomplete() {
+    const input = document.getElementById('bt-stock-search');
+    const suggestionsDiv = document.getElementById('bt-stock-suggestions');
+
+    if (!input || !suggestionsDiv) return;
+
+    // 只可输入数字
+    input.addEventListener('input', function() {
+        // 移除非数字字符
+        this.value = this.value.replace(/\D/g, '');
+
+        const keyword = this.value.trim();
+
+        // 清除之前的定时器
+        if (btSearchTimeout) {
+            clearTimeout(btSearchTimeout);
+        }
+
+        // 隐藏建议列表
+        if (!keyword) {
+            suggestionsDiv.style.display = 'none';
+            return;
+        }
+
+        // 延迟搜索（防抖）
+        btSearchTimeout = setTimeout(() => {
+            fetchBtSuggestions(keyword);
+        }, 300);
+    });
+
+    // 失焦隐藏建议
+    input.addEventListener('blur', function() {
+        setTimeout(() => {
+            suggestionsDiv.style.display = 'none';
+        }, 200);
+    });
+
+    // 聚焦显示建议
+    input.addEventListener('focus', function() {
+        if (this.value.trim() && suggestionsDiv.children.length > 0) {
+            suggestionsDiv.style.display = 'block';
+        }
+    });
+}
+
+/**
+ * 获取联想建议
+ */
+async function fetchBtSuggestions(keyword) {
+    const suggestionsDiv = document.getElementById('bt-stock-suggestions');
+
+    try {
+        const response = await fetch(`/api/stock_search?keyword=${encodeURIComponent(keyword)}`);
+        const result = await response.json();
+
+        if (result.success && result.data && result.data.length > 0) {
+            renderBtSuggestions(result.data);
+        } else {
+            suggestionsDiv.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('搜索股票代码失败:', error);
+        suggestionsDiv.style.display = 'none';
+    }
+}
+
+/**
+ * 渲染联想建议列表
+ */
+function renderBtSuggestions(suggestions) {
+    const suggestionsDiv = document.getElementById('bt-stock-suggestions');
+    suggestionsDiv.innerHTML = '';
+
+    suggestions.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'autocomplete-item';
+        div.textContent = item.display;
+        div.addEventListener('click', () => {
+            document.getElementById('bt-stock-search').value = item.code;
+            suggestionsDiv.style.display = 'none';
+        });
+        suggestionsDiv.appendChild(div);
+    });
+
+    suggestionsDiv.style.display = 'block';
 }
 
 /**
@@ -79,9 +171,12 @@ async function searchBtStocks() {
         return;
     }
 
+    // 转为整数（去除前导零）
+    const stockCodeInt = stockCode ? parseInt(stockCode, 10).toString() : '';
+
     // 保存搜索参数
     btSearchStrategy = strategy;
-    btSearchStockCode = stockCode;
+    btSearchStockCode = stockCodeInt;
 
     Utils.showLoading(container, '加载中...');
 

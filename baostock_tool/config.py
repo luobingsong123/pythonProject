@@ -40,9 +40,19 @@ def get_backtrade_date_config():
         "frequency": config.get("backtradedate", "frequency"),
     }
 
+def get_questdb_config():
+    """获取QuestDB配置"""
+    return {
+        "host": config.get("questdb", "host"),
+        "port": config.getint("questdb", "port"),
+        "user": config.get("questdb", "username"),
+        "password": config.get("questdb", "password"),
+    }
+
 
 if __name__ == "__main__":
     print(get_db_config())
     print(get_log_config())
     print(get_web_config())
     print(get_backtrade_date_config())
+    print(get_questdb_config())
