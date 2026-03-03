@@ -104,7 +104,7 @@ class BaostockDataCollector:
         CREATE TABLE IF NOT EXISTS stock_adjust_factor (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             date DATE NOT NULL COMMENT '日期',
-            market VARCHAR(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳',
+            market VARCHAR(2) NOT NULL COMMENT '市场代码：sh=上海, sz=深圳', 
             code_int INT(10) UNSIGNED NOT NULL COMMENT '6位数字股票代码',
             fore_adjust_factor DECIMAL(20,10) DEFAULT 1.0 COMMENT '前复权因子',
             back_adjust_factor DECIMAL(20,10) DEFAULT 1.0 COMMENT '后复权因子',
