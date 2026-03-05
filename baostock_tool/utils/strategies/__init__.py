@@ -18,6 +18,9 @@ STRATEGY_REGISTRY = {
     'ValueStrategy': ValueStrategyTimeBased,
     'MAStrategy': MAStrategyTimeBased,
     'CodeBuddyStrategy': CodeBuddyStrategyTimeBased,
+    'ValueStrategyTimeBased': ValueStrategyTimeBased,
+    'MAStrategyTimeBased': MAStrategyTimeBased,
+    'CodeBuddyStrategyTimeBased': CodeBuddyStrategyTimeBased,
 }
 
 

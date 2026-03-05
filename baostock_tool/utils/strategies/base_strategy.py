@@ -6,8 +6,9 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 import pandas as pd
+import numpy as np
 
 
 class BaseStrategy(ABC):
@@ -137,6 +138,103 @@ class BaseStrategy(ABC):
             int: 最小数据长度（用于过滤数据不足的股票）
         """
         pass
+    
+    def check_buy_signal_batch(
+        self,
+        stock_codes: List[str],
+        markets: List[str],
+        stock_data_map: Dict[str, pd.DataFrame],
+        current_date: str
+    ) -> List[Dict[str, Any]]:
+        """
+        批量检查买入信号（向量化版本，子类可重写实现优化）
+        
+        默认实现：逐个调用 check_buy_signal，保证向后兼容
+        
+        Args:
+            stock_codes: 股票代码列表
+            markets: 市场代码列表（与stock_codes一一对应）
+            stock_data_map: 股票数据字典 {stock_code: DataFrame}
+            current_date: 当前日期 (YYYY-MM-DD)
+            
+        Returns:
+            List[Dict]: 信号列表，每个元素包含:
+                - stock_code: 股票代码
+                - market: 市场代码
+                - is_signal: 是否触发信号
+                - signal_strength: 信号强度
+                - signal_info: 信号详情
+        """
+        results = []
+        for stock_code, market in zip(stock_codes, markets):
+            stock_data = stock_data_map.get(stock_code)
+            if stock_data is None or len(stock_data) == 0:
+                results.append({
+                    'stock_code': stock_code,
+                    'market': market,
+                    'is_signal': False,
+                    'signal_strength': 0,
+                    'signal_info': None
+                })
+                continue
+            
+            is_signal, strength, info = self.check_buy_signal(
+                stock_code, market, stock_data, current_date
+            )
+            results.append({
+                'stock_code': stock_code,
+                'market': market,
+                'is_signal': is_signal,
+                'signal_strength': strength,
+                'signal_info': info
+            })
+        return results
+    
+    def check_sell_signal_batch(
+        self,
+        positions: List['Position'],
+        stock_data_map: Dict[str, pd.DataFrame],
+        current_date: str
+    ) -> List[Dict[str, Any]]:
+        """
+        批量检查卖出信号（向量化版本，子类可重写实现优化）
+        
+        默认实现：逐个调用 check_sell_signal，保证向后兼容
+        
+        Args:
+            positions: 持仓对象列表
+            stock_data_map: 股票数据字典 {stock_code: DataFrame}
+            current_date: 当前日期 (YYYY-MM-DD)
+            
+        Returns:
+            List[Dict]: 信号列表，每个元素包含:
+                - stock_code: 股票代码
+                - should_sell: 是否应该卖出
+                - sell_reason: 卖出原因
+                - sell_price: 建议卖出价格
+        """
+        results = []
+        for position in positions:
+            stock_data = stock_data_map.get(position.stock_code)
+            if stock_data is None:
+                results.append({
+                    'stock_code': position.stock_code,
+                    'should_sell': False,
+                    'sell_reason': '',
+                    'sell_price': position.buy_price
+                })
+                continue
+            
+            should_sell, reason, price = self.check_sell_signal(
+                position, stock_data, current_date
+            )
+            results.append({
+                'stock_code': position.stock_code,
+                'should_sell': should_sell,
+                'sell_reason': reason,
+                'sell_price': price
+            })
+        return results
     
     def on_backtest_start(self, context: Dict[str, Any]):
         """

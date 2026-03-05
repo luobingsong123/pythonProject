@@ -9,7 +9,7 @@ CodeBuddy时间策略
 """
 
 from .base_strategy import BaseStrategy, Position
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 import pandas as pd
 import numpy as np
 
@@ -181,3 +181,229 @@ class CodeBuddyStrategyTimeBased(BaseStrategy):
             Tuple[bool, float, Dict]: (是否补仓, 补仓价格, 补仓信息)
         """
         return False, 0.0, None
+    
+    def check_buy_signal_batch(
+        self,
+        stock_codes: List[str],
+        markets: List[str],
+        stock_data_map: Dict[str, pd.DataFrame],
+        current_date: str
+    ) -> List[Dict[str, Any]]:
+        """
+        向量化批量检查买入信号
+        
+        使用 pandas/numpy 向量化操作，大幅提升多股票信号检查性能
+        
+        优化策略：
+        1. 预过滤：快速排除数据不足的股票
+        2. 批量提取：一次性提取所有股票的关键数据
+        3. 向量化计算：使用 numpy 批量计算指标
+        4. 避免重复拷贝：直接在原数据上操作
+        
+        Args:
+            stock_codes: 股票代码列表
+            markets: 市场代码列表
+            stock_data_map: 股票数据字典（已切片到当前日期，时区已处理）
+            current_date: 当前日期
+            
+        Returns:
+            List[Dict]: 信号结果列表
+        """
+        current_date_dt = pd.to_datetime(current_date)
+        period = self.params['period']
+        n_stocks = len(stock_codes)
+        
+        # 预分配结果列表（使用列表推导式更快）
+        results = [{
+            'stock_code': stock_codes[i],
+            'market': markets[i],
+            'is_signal': False,
+            'signal_strength': 0.0,
+            'signal_info': None
+        } for i in range(n_stocks)]
+        
+        # ===== 第一阶段：快速预过滤 =====
+        # 批量检查数据有效性，避免在循环中重复检查
+        valid_mask = np.ones(n_stocks, dtype=bool)
+        stock_lengths = np.zeros(n_stocks, dtype=int)
+        has_current_date = np.zeros(n_stocks, dtype=bool)
+        
+        for i, stock_code in enumerate(stock_codes):
+            stock_data = stock_data_map.get(stock_code)
+            if stock_data is None:
+                valid_mask[i] = False
+                continue
+            
+            stock_lengths[i] = len(stock_data)
+            
+            # 检查当前日期是否存在（快速检查）
+            if stock_data.index.tz is not None:
+                has_current_date[i] = current_date_dt in stock_data.index.tz_localize(None)
+            else:
+                has_current_date[i] = current_date_dt in stock_data.index
+        
+        # 数据长度检查
+        valid_mask &= (stock_lengths >= period + 1)
+        valid_mask &= has_current_date
+        
+        valid_indices = np.where(valid_mask)[0]
+        
+        if len(valid_indices) == 0:
+            return results
+        
+        # ===== 第二阶段：批量提取关键数据 =====
+        # 预分配数组存储需要的数据
+        yesterday_volumes = np.zeros(len(valid_indices))
+        min_volumes = np.zeros(len(valid_indices))
+        avg_volumes = np.zeros(len(valid_indices))
+        open_prices = np.zeros(len(valid_indices))
+        
+        for arr_idx, stock_idx in enumerate(valid_indices):
+            stock_code = stock_codes[stock_idx]
+            stock_data = stock_data_map[stock_code]
+            
+            # 处理时区
+            if stock_data.index.tz is not None:
+                stock_data = stock_data.copy()
+                stock_data.index = stock_data.index.tz_localize(None)
+            
+            # 获取当日开盘价
+            open_prices[arr_idx] = stock_data.loc[current_date_dt, 'open']
+            
+            # 获取过去N天成交量（向量化切片）
+            volume_series = stock_data['volume'].iloc[-period-1:-1]
+            
+            if len(volume_series) >= period:
+                volumes = volume_series.values
+                yesterday_volumes[arr_idx] = volumes[-1]
+                min_volumes[arr_idx] = np.min(volumes)
+                avg_volumes[arr_idx] = np.mean(volumes)
+            else:
+                # 标记无效
+                yesterday_volumes[arr_idx] = -1
+        
+        # ===== 第三阶段：向量化计算信号 =====
+        # 批量判断：昨日成交量是否为N日最低
+        is_min_volume = (yesterday_volumes == min_volumes) & (yesterday_volumes > 0)
+        
+        # 批量计算信号强度
+        volume_shrink_rates = np.where(
+            avg_volumes > 0,
+            1 - (yesterday_volumes / avg_volumes),
+            0
+        )
+        signal_strengths = np.minimum(1.0, volume_shrink_rates + 0.5)
+        
+        # ===== 第四阶段：填充结果 =====
+        signal_indices = valid_indices[is_min_volume]
+        
+        for arr_idx, stock_idx in enumerate(valid_indices):
+            if is_min_volume[arr_idx]:
+                results[stock_idx] = {
+                    'stock_code': stock_codes[stock_idx],
+                    'market': markets[stock_idx],
+                    'is_signal': True,
+                    'signal_strength': float(signal_strengths[arr_idx]),
+                    'signal_info': {
+                        'close_price': float(open_prices[arr_idx]),
+                        'yesterday_volume': float(yesterday_volumes[arr_idx]),
+                        'min_volume': float(min_volumes[arr_idx]),
+                        'volume_rank': f'{period}日最低',
+                        'volume_shrink_rate': round(float(volume_shrink_rates[arr_idx]), 4),
+                    }
+                }
+        
+        return results
+    
+    def check_sell_signal_batch(
+        self,
+        positions: List[Position],
+        stock_data_map: Dict[str, pd.DataFrame],
+        current_date: str
+    ) -> List[Dict[str, Any]]:
+        """
+        向量化批量检查卖出信号
+        
+        Args:
+            positions: 持仓对象列表
+            stock_data_map: 股票数据字典（已切片到当前日期，时区已处理）
+            current_date: 当前日期
+            
+        Returns:
+            List[Dict]: 卖出信号列表
+        """
+        results = []
+        current_date_dt = pd.to_datetime(current_date)
+        
+        for position in positions:
+            result = {
+                'stock_code': position.stock_code,
+                'should_sell': False,
+                'sell_reason': '',
+                'sell_price': position.buy_price
+            }
+            
+            stock_data = stock_data_map.get(position.stock_code)
+            if stock_data is None:
+                results.append(result)
+                continue
+            
+            # 确保索引无时区（兼容性处理）
+            if stock_data.index.tz is not None:
+                stock_data = stock_data.copy()
+                stock_data.index = stock_data.index.tz_localize(None)
+            
+            if current_date_dt not in stock_data.index:
+                results.append(result)
+                continue
+            
+            try:
+                today_data = stock_data.loc[current_date_dt]
+                current_price = float(today_data['open'])
+                
+                # 计算盈亏比例
+                profit_rate = position.get_profit_rate(current_price) * 100
+                
+                # 条件1：浮盈达到阈值
+                if profit_rate >= self.params['profit_threshold']:
+                    result = {
+                        'stock_code': position.stock_code,
+                        'should_sell': True,
+                        'sell_reason': f'浮盈达到{self.params["profit_threshold"]}%',
+                        'sell_price': current_price
+                    }
+                # 条件2：浮亏达到阈值
+                elif profit_rate <= -self.params['drawdown_threshold']:
+                    result = {
+                        'stock_code': position.stock_code,
+                        'should_sell': True,
+                        'sell_reason': f'浮亏达到-{self.params["drawdown_threshold"]}%',
+                        'sell_price': current_price
+                    }
+                # 条件3：持仓天数达到阈值
+                elif position.hold_days >= self.params['hold_days_threshold']:
+                    result = {
+                        'stock_code': position.stock_code,
+                        'should_sell': True,
+                        'sell_reason': f'持仓天数达到{self.params["hold_days_threshold"]}天',
+                        'sell_price': current_price
+                    }
+                else:
+                    # 动态止盈止损检查
+                    should_stop, stop_reason = self.check_dynamic_stop_loss(position, current_price)
+                    if should_stop:
+                        result = {
+                            'stock_code': position.stock_code,
+                            'should_sell': True,
+                            'sell_reason': stop_reason,
+                            'sell_price': current_price
+                        }
+                    else:
+                        result['sell_price'] = current_price
+                
+            except Exception:
+                pass
+            
+            results.append(result)
+        
+        return results

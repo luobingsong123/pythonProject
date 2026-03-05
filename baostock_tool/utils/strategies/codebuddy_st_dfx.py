@@ -22,6 +22,7 @@ class CodeBuddyStrategyDFX(bt.Strategy):
     STRATEGY_NAME = "底分型策略"
 
     params = (
+        ('stock_code', ''),            # 股票代码
         ('profit_threshold', 10.0),    # 总浮盈阈值（百分比）
         ('drawdown_threshold', 3.0),  # 总回撤阈值（百分比）
         ('hold_days_threshold', 99999),  # 最大持仓天数阈值

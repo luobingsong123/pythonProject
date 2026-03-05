@@ -120,7 +120,7 @@ def clamp(value):
 
 
 class BaostockDataCollector:
-    def __init__(self, db_config, max_workers=50):
+    def __init__(self, db_config, max_workers=3):
         """
         初始化数据库连接配置
 
@@ -790,7 +790,7 @@ def main():
         'database': db_config_["database"],
     }
 
-    collector = BaostockDataCollector(db_config, max_workers=50)
+    collector = BaostockDataCollector(db_config, max_workers=3)
     success = collector.collect_all_data(minute_frequencies=['d'])
 
     if success:

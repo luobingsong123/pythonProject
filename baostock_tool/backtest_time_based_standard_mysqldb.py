@@ -1,5 +1,5 @@
 """
-按时间遍历所有个股的标准回测脚本 - MySQL+QuestDB版本（重构版）
+按时间遍历所有个股的标准回测脚本 - MySQL版本（重构版）
 
 特点：
 1. 按交易日顺序遍历，每个时间点检查所有股票信号
@@ -7,9 +7,8 @@
 3. 支持选股机制和仓位控制
 4. 支持策略模块化替换
 5. 更接近实盘交易场景
-6. 交易日历、股票列表使用MySQL存储
-7. 股票日K线数据使用QuestDB存储
-8. 模块化设计，职责清晰
+6. 使用MySQL存储股票历史数据
+7. 模块化设计，职责清晰
 
 使用方式：
     # 方式1：使用默认策略
@@ -57,7 +56,7 @@ from utils.backtest_engine import (
 )
 
 # 数据加载组件
-from utils.data_loader.questdb_data_preloader import QuestDBDataPreloader
+from utils.data_loader.mysql_data_preloader import MySQLDataPreloader
 
 # 默认回测配置
 BACKTEST_CONFIG = {
@@ -94,11 +93,10 @@ logger = setup_logger(
 
 class TimeBasedBacktester:
     """
-    按时间遍历的回测引擎 - MySQL+QuestDB版本（重构版）
+    按时间遍历的回测引擎 - MySQL版本（重构版）
 
     支持策略模块化，可以通过 strategy 参数注入不同的策略
-    - 股票日K线数据从QuestDB加载
-    - 交易日历、股票列表等从MySQL加载
+    所有数据从MySQL加载
     """
 
     def __init__(self, config_dict=None, strategy=None):
@@ -143,8 +141,8 @@ class TimeBasedBacktester:
         )
         self.engine = create_engine(db_url, pool_pre_ping=True, pool_recycle=3600)
 
-        # 数据加载器（使用QuestDB加载股票日K线数据）
-        self.data_preloader = QuestDBDataPreloader()
+        # 数据加载器
+        self.data_preloader = MySQLDataPreloader()
 
         # 每日资产记录
         self.daily_values = []
@@ -179,10 +177,9 @@ class TimeBasedBacktester:
         """获取股票列表"""
         query = """
         SELECT market, code_int, name
-        FROM stock_basic_info 
+        FROM stock_basic_info
         WHERE (market = 'sh' AND code_int > 600000 AND code_int < 610000)
-           OR (market = 'sz' AND code_int > 0 AND code_int < 10000)
-           OR (market = 'sz' AND code_int > 300000 AND code_int < 310000)
+           OR (market = 'sz' AND code_int > 0 AND code_int < 310000)
         ORDER BY code_int
         """
         df = pd.read_sql(query, self.engine)
@@ -309,16 +306,14 @@ class TimeBasedBacktester:
     def _print_backtest_info(self, trading_dates):
         """打印回测配置信息"""
         db_config = config.get_db_config()
-        questdb_config = config.get_questdb_config()
         logger.info(f"{'=' * 60}")
-        logger.info(f"开始按时间遍历回测 (MySQL+QuestDB数据源)")
+        logger.info(f"开始按时间遍历回测 (MySQL数据源)")
         logger.info(f"策略: {self.strategy.STRATEGY_NAME}")
         logger.info(f"回测期间: {self.config.start_date} 至 {self.config.end_date}")
         logger.info(f"初始资金: {self.config.initial_cash:,.0f}")
         logger.info(f"最大持仓: {self.config.max_positions} 只")
         logger.info(f"交易日数: {len(trading_dates)} 天")
-        logger.info(f"MySQL: {db_config['host']}:{db_config['port']}/{db_config['database']} (交易日历、股票列表)")
-        logger.info(f"QuestDB: {questdb_config['host']}:{questdb_config['port']} (股票日K线)")
+        logger.info(f"MySQL: {db_config['host']}:{db_config['port']}/{db_config['database']}")
         self.blackout_manager.log_blackout_status()
         logger.info(f"{'=' * 60}")
 
@@ -635,7 +630,7 @@ def main():
     """主函数"""
     # 使用 codebuddy 策略
     from utils.strategies import get_strategy
-    strategy = get_strategy('value')
+    strategy = get_strategy('codebuddy')
     backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
 
     # 执行回测

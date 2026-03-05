@@ -14,6 +14,7 @@ class CodeBuddyStrategy(bt.Strategy):
     2. 买入后的下一个交易日卖出
     """
     params = (
+        ('stock_code', ''),            # 股票代码
         ('period', 30),          # 查找最低成交量的周期
         ('profit_threshold', 10.0),    # 总浮盈阈值（百分比）
         ('drawdown_threshold', 3.0), # 总回撤阈值（百分比）
