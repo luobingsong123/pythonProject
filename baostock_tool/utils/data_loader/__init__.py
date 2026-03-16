@@ -5,12 +5,10 @@
 """
 
 from utils.data_loader.questdb_client import QuestDBClient, create_questdb_client
-from utils.data_loader.data_preloader import DataPreloader
 from utils.data_loader.mysql_data_preloader import MySQLDataPreloader
 
 __all__ = [
     'QuestDBClient',
     'create_questdb_client',
-    'DataPreloader',
     'MySQLDataPreloader'
 ]

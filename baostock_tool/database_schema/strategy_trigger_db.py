@@ -133,6 +133,49 @@ class BacktestDailyRecords(Base):
                 f"trade_date='{self.trade_date}', buy_count={self.buy_count}, sell_count={self.sell_count})>")
 
 
+class BacktestTradeRecords(Base):
+    """回测交易明细表 - 逐行记录每笔买入（加仓）和卖出"""
+
+    __tablename__ = 'backtest_trade_records'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键ID')
+    strategy_name = Column(String(100), nullable=False, comment='策略名称')
+    backtest_start_date = Column(Date, nullable=False, comment='回测开始日期')
+    backtest_end_date = Column(Date, nullable=False, comment='回测结束日期')
+    trade_date = Column(Date, nullable=False, comment='交易日期')
+    market = Column(String(5), nullable=False, comment='市场代码(sh/sz/bj)')
+    code_int = Column(Integer, nullable=False, comment='证券代码')
+    trigger_type = Column(String(20), nullable=False, comment='交易类型(buy/sell/add_position)')
+    price = Column(Numeric(10, 2), nullable=False, comment='交易价格')
+    volume = Column(Integer, nullable=False, comment='交易数量')
+    amount = Column(Numeric(15, 2), comment='交易金额')
+    commission = Column(Numeric(10, 2), comment='手续费')
+    profit = Column(Numeric(15, 2), comment='盈亏金额(卖出时记录)')
+    profit_rate = Column(Numeric(10, 4), comment='盈亏比例(卖出时记录)')
+    hold_days = Column(Integer, comment='持仓天数(卖出时记录)')
+    sell_reason = Column(String(100), comment='卖出原因')
+    signal_info = Column(String, comment='信号信息(JSON格式)')
+    created_at = Column(TIMESTAMP, nullable=False, server_default=text('CURRENT_TIMESTAMP'), comment='创建时间')
+
+    __table_args__ = (
+        Index('idx_strategy_period', 'strategy_name', 'backtest_start_date', 'backtest_end_date'),
+        Index('idx_trade_date', 'trade_date'),
+        Index('idx_market_code', 'market', 'code_int'),
+        Index('idx_trigger_type', 'trigger_type'),
+        Index('idx_stock_trade', 'market', 'code_int', 'trade_date'),
+        {
+            'mysql_charset': 'utf8mb4',
+            'mysql_collate': 'utf8mb4_unicode_ci',
+            'comment': '回测交易明细表'
+        }
+    )
+
+    def __repr__(self):
+        return (f"<BacktestTradeRecords(id={self.id}, strategy_name='{self.strategy_name}', "
+                f"code='{self.code_int}', trade_date='{self.trade_date}', trigger_type='{self.trigger_type}', "
+                f"price={self.price}, volume={self.volume})>")
+
+
 class StrategyTriggerDB:
     """策略触发点位数据库管理类"""
 
@@ -164,11 +207,15 @@ class StrategyTriggerDB:
             if drop_existing:
                 BacktestBatchSummary.__table__.drop(self.engine, checkfirst=True)
                 StrategyTriggerPoints.__table__.drop(self.engine, checkfirst=True)
+                BacktestDailyRecords.__table__.drop(self.engine, checkfirst=True)
+                BacktestTradeRecords.__table__.drop(self.engine, checkfirst=True)
                 logger.debug("已删除旧表")
 
             # 创建表（先创建没有外键的表）
             StrategyTriggerPoints.__table__.create(self.engine, checkfirst=True)
             BacktestBatchSummary.__table__.create(self.engine, checkfirst=True)
+            BacktestDailyRecords.__table__.create(self.engine, checkfirst=True)
+            BacktestTradeRecords.__table__.create(self.engine, checkfirst=True)
             logger.debug("所有表创建成功")
             return True
         except Exception as e:
@@ -927,6 +974,324 @@ class StrategyTriggerDB:
             logger.error(f"获取每日记录统计信息失败: {str(e)}")
             return {}
 
+    # ============ 回测交易明细相关方法 ============
+
+    def insert_trade_record(self, strategy_name, backtest_start_date, backtest_end_date,
+                            trade_date, market, code_int, trigger_type, price, volume,
+                            amount=None, commission=None, profit=None, profit_rate=None,
+                            hold_days=None, sell_reason=None, signal_info=None):
+        """
+        插入单条交易记录
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期 (YYYY-MM-DD)
+            backtest_end_date (str): 回测结束日期 (YYYY-MM-DD)
+            trade_date (str): 交易日期 (YYYY-MM-DD)
+            market (str): 市场代码 (sh/sz/bj)
+            code_int (int): 证券代码
+            trigger_type (str): 交易类型 (buy/sell/add_position)
+            price (float): 交易价格
+            volume (int): 交易数量
+            amount (float, optional): 交易金额
+            commission (float, optional): 手续费
+            profit (float, optional): 盈亏金额(卖出时记录)
+            profit_rate (float, optional): 盈亏比例(卖出时记录)
+            hold_days (int, optional): 持仓天数(卖出时记录)
+            sell_reason (str, optional): 卖出原因
+            signal_info (dict/str, optional): 信号信息(JSON格式)
+
+        Returns:
+            bool: 是否成功插入
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            import json
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            # 转换signal_info为JSON字符串
+            if isinstance(signal_info, (dict, list)):
+                signal_info_str = json.dumps(signal_info, ensure_ascii=False)
+            else:
+                signal_info_str = signal_info
+
+            # 插入新记录
+            new_record = BacktestTradeRecords(
+                strategy_name=strategy_name,
+                backtest_start_date=backtest_start_date,
+                backtest_end_date=backtest_end_date,
+                trade_date=trade_date,
+                market=market,
+                code_int=code_int,
+                trigger_type=trigger_type,
+                price=price,
+                volume=volume,
+                amount=amount,
+                commission=commission,
+                profit=profit,
+                profit_rate=profit_rate,
+                hold_days=hold_days,
+                sell_reason=sell_reason,
+                signal_info=signal_info_str
+            )
+            session.add(new_record)
+            session.commit()
+            session.close()
+            logger.debug(f"插入交易记录: {strategy_name} - {market}.{code_int} - {trigger_type} - {trade_date}")
+            return True
+        except Exception as e:
+            logger.error(f"插入交易记录失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def batch_insert_trade_records(self, records):
+        """
+        批量插入交易记录
+
+        Args:
+            records (list): 记录列表，每条记录为字典格式
+
+        Returns:
+            tuple: (成功数量, 失败数量)
+        """
+        success_count = 0
+        fail_count = 0
+
+        for record in records:
+            result = self.insert_trade_record(**record)
+            if result:
+                success_count += 1
+            else:
+                fail_count += 1
+
+        logger.info(f"批量插入交易记录完成: 成功 {success_count} 条, 失败 {fail_count} 条")
+        return success_count, fail_count
+
+    def query_trade_records(self, strategy_name=None, backtest_start_date=None, backtest_end_date=None,
+                           market=None, code_int=None, trigger_type=None,
+                           start_trade_date=None, end_trade_date=None):
+        """
+        查询交易记录
+
+        Args:
+            strategy_name (str, optional): 策略名称
+            backtest_start_date (str, optional): 回测开始日期
+            backtest_end_date (str, optional): 回测结束日期
+            market (str, optional): 市场代码
+            code_int (int, optional): 证券代码
+            trigger_type (str, optional): 交易类型
+            start_trade_date (str, optional): 查询起始交易日期
+            end_trade_date (str, optional): 查询结束交易日期
+
+        Returns:
+            list: 查询结果列表
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            query = session.query(BacktestTradeRecords)
+
+            if strategy_name:
+                query = query.filter(BacktestTradeRecords.strategy_name == strategy_name)
+            if backtest_start_date:
+                query = query.filter(BacktestTradeRecords.backtest_start_date >= backtest_start_date)
+            if backtest_end_date:
+                query = query.filter(BacktestTradeRecords.backtest_end_date <= backtest_end_date)
+            if market:
+                query = query.filter(BacktestTradeRecords.market == market)
+            if code_int:
+                query = query.filter(BacktestTradeRecords.code_int == code_int)
+            if trigger_type:
+                query = query.filter(BacktestTradeRecords.trigger_type == trigger_type)
+            if start_trade_date:
+                query = query.filter(BacktestTradeRecords.trade_date >= start_trade_date)
+            if end_trade_date:
+                query = query.filter(BacktestTradeRecords.trade_date <= end_trade_date)
+
+            results = query.order_by(BacktestTradeRecords.trade_date, BacktestTradeRecords.id).all()
+            session.close()
+            return results
+        except Exception as e:
+            logger.error(f"查询交易记录失败: {str(e)}")
+            return []
+
+    def delete_trade_records(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        删除指定策略和时间段的交易记录
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            int: 删除的记录数量
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            count = session.query(BacktestTradeRecords).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date
+            ).delete()
+
+            session.commit()
+            session.close()
+            logger.info(f"删除交易记录: {count} 条")
+            return count
+        except Exception as e:
+            logger.error(f"删除交易记录失败: {str(e)}")
+            return 0
+
+    def get_trade_statistics(self, strategy_name, backtest_start_date, backtest_end_date):
+        """
+        获取指定回测的交易统计信息
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+
+        Returns:
+            dict: 统计信息字典
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy import func
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            # 总交易笔数
+            total_trades = session.query(func.count(BacktestTradeRecords.id)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date
+            ).scalar() or 0
+
+            # 买入笔数
+            buy_count = session.query(func.count(BacktestTradeRecords.id)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'buy'
+            ).scalar() or 0
+
+            # 加仓笔数
+            add_count = session.query(func.count(BacktestTradeRecords.id)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'add_position'
+            ).scalar() or 0
+
+            # 卖出笔数
+            sell_count = session.query(func.count(BacktestTradeRecords.id)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'sell'
+            ).scalar() or 0
+
+            # 总手续费
+            total_commission = session.query(func.sum(BacktestTradeRecords.commission)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date
+            ).scalar() or 0
+
+            # 盈利交易数
+            profit_count = session.query(func.count(BacktestTradeRecords.id)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'sell',
+                BacktestTradeRecords.profit > 0
+            ).scalar() or 0
+
+            # 亏损交易数
+            loss_count = session.query(func.count(BacktestTradeRecords.id)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'sell',
+                BacktestTradeRecords.profit < 0
+            ).scalar() or 0
+
+            # 总盈亏
+            total_profit = session.query(func.sum(BacktestTradeRecords.profit)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'sell'
+            ).scalar() or 0
+
+            # 平均持仓天数
+            avg_hold_days = session.query(func.avg(BacktestTradeRecords.hold_days)).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.trigger_type == 'sell'
+            ).scalar() or 0
+
+            session.close()
+
+            return {
+                'total_trades': total_trades,
+                'buy_count': buy_count,
+                'add_count': add_count,
+                'sell_count': sell_count,
+                'total_commission': float(total_commission),
+                'profit_count': profit_count,
+                'loss_count': loss_count,
+                'total_profit': float(total_profit),
+                'avg_hold_days': float(avg_hold_days),
+                'win_rate': round(profit_count / sell_count * 100, 2) if sell_count > 0 else 0
+            }
+        except Exception as e:
+            logger.error(f"获取交易统计信息失败: {str(e)}")
+            return {}
+
+    def get_stock_trade_history(self, strategy_name, backtest_start_date, backtest_end_date,
+                               market, code_int):
+        """
+        获取指定股票的交易历史
+
+        Args:
+            strategy_name (str): 策略名称
+            backtest_start_date (str): 回测开始日期
+            backtest_end_date (str): 回测结束日期
+            market (str): 市场代码
+            code_int (int): 证券代码
+
+        Returns:
+            list: 交易历史列表，按时间顺序排列
+        """
+        try:
+            from sqlalchemy.orm import sessionmaker
+            Session = sessionmaker(bind=self.engine)
+            session = Session()
+
+            results = session.query(BacktestTradeRecords).filter(
+                BacktestTradeRecords.strategy_name == strategy_name,
+                BacktestTradeRecords.backtest_start_date == backtest_start_date,
+                BacktestTradeRecords.backtest_end_date == backtest_end_date,
+                BacktestTradeRecords.market == market,
+                BacktestTradeRecords.code_int == code_int
+            ).order_by(BacktestTradeRecords.trade_date, BacktestTradeRecords.id).all()
+
+            session.close()
+            return results
+        except Exception as e:
+            logger.error(f"获取股票交易历史失败: {str(e)}")
+            return []
+
 
 # 使用示例
 if __name__ == "__main__":
@@ -1041,3 +1406,76 @@ if __name__ == "__main__":
     # 获取汇总统计信息
     summary_stats = db.get_summary_statistics()
     logger.debug(f"汇总统计信息: {summary_stats}")
+
+    # ========== 回测交易明细示例 ==========
+    # 插入买入记录
+    db.insert_trade_record(
+        strategy_name="ValueStrategy",
+        backtest_start_date="2024-01-01",
+        backtest_end_date="2024-12-31",
+        trade_date="2024-01-05",
+        market="sh",
+        code_int=600001,
+        trigger_type="buy",
+        price=3.52,
+        volume=1000,
+        amount=3520.00,
+        commission=3.52,
+        signal_info={"pe_ttm": 8.5, "pb_mrq": 0.9, "close_price": 3.52}
+    )
+
+    # 插入加仓记录
+    db.insert_trade_record(
+        strategy_name="ValueStrategy",
+        backtest_start_date="2024-01-01",
+        backtest_end_date="2024-12-31",
+        trade_date="2024-01-10",
+        market="sh",
+        code_int=600001,
+        trigger_type="add_position",
+        price=3.45,
+        volume=500,
+        amount=1725.00,
+        commission=1.73,
+        signal_info={"add_reason": "价格下跌加仓", "close_price": 3.45}
+    )
+
+    # 插入卖出记录
+    db.insert_trade_record(
+        strategy_name="ValueStrategy",
+        backtest_start_date="2024-01-01",
+        backtest_end_date="2024-12-31",
+        trade_date="2024-01-15",
+        market="sh",
+        code_int=600001,
+        trigger_type="sell",
+        price=3.68,
+        volume=1500,
+        amount=5520.00,
+        commission=5.52,
+        profit=265.70,
+        profit_rate=4.51,
+        hold_days=10,
+        sell_reason="达到止盈目标"
+    )
+
+    # 查询交易记录
+    trade_records = db.query_trade_records(
+        strategy_name="ValueStrategy",
+        backtest_start_date="2024-01-01",
+        backtest_end_date="2024-12-31"
+    )
+    logger.debug(f"\n交易记录:")
+    for record in trade_records:
+        logger.debug(f"{record.trade_date} | {record.market}.{record.code_int} | {record.trigger_type} | "
+                    f"价格:{record.price} 数量:{record.volume}")
+
+    # 获取交易统计信息
+    trade_stats = db.get_trade_statistics("ValueStrategy", "2024-01-01", "2024-12-31")
+    logger.debug(f"\n交易统计信息: {trade_stats}")
+
+    # 获取指定股票的交易历史
+    stock_history = db.get_stock_trade_history("ValueStrategy", "2024-01-01", "2024-12-31", "sh", 600001)
+    logger.debug(f"\n股票 600001 的交易历史:")
+    for record in stock_history:
+        logger.debug(f"{record.trade_date} | {record.trigger_type} | 价格:{record.price} 数量:{record.volume}")

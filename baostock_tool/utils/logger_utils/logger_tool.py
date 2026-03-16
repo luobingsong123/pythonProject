@@ -52,10 +52,12 @@ def setup_logger(
 
     # 7. 定义统一日志格式（两个 Handler 共用）
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - Line: %(lineno)d - %(levelname)s - %(message)s"
+        "%(asctime)s | %(filename)s : %(lineno)d | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
         # 格式说明：
-        # %(asctime)s: 时间（比如 2024-05-20 14:30:00,123）
-        # %(name)s: Logger 名字（比如 main 或 __name__）
+        # %(asctime)s: 时间（比如 2024-05-20 14:30:00）
+        # %(filename)s: 调用日志的文件名
+        # %(lineno)d: 行号
         # %(levelname)s: 日志级别（INFO/ERROR 等）
         # %(message)s: 日志内容
     )

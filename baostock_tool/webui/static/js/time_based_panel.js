@@ -6,6 +6,7 @@ let tbProfitChart = null;
 let currentTbPeriod = null;
 let tbSummaryData = [];
 let currentBenchmark = 'sh000001';
+let tbTradeRecordsData = {}; // 缓存交易记录数据
 
 // 基准指数配置
 const benchmarkConfig = {
@@ -269,6 +270,9 @@ async function loadTbPeriodDetail(item) {
     // 加载收益图表
     await loadTbProfitChartData(strategy, startDate, endDate);
 
+    // 加载交易记录（用于展开详情）
+    await loadTbTradeRecords(strategy, startDate, endDate);
+
     // 加载每日记录
     await loadTbDailyRecords(strategy, startDate, endDate);
 }
@@ -380,6 +384,26 @@ function renderTbParams(strategyParams, backtestConfig) {
     }
     
     return html || `<div class="empty-state"><span class="material-icons empty-state-icon">tune</span><div>该回测区间暂无策略参数</div></div>`;
+}
+
+/**
+ * 加载交易记录数据
+ */
+async function loadTbTradeRecords(strategy, startDate, endDate) {
+    try {
+        const url = `/api/trade_records?strategy=${encodeURIComponent(strategy)}&start_date=${startDate}&end_date=${endDate}`;
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            tbTradeRecordsData = result.data;
+        } else {
+            tbTradeRecordsData = {};
+        }
+    } catch (error) {
+        console.error('加载交易记录失败:', error);
+        tbTradeRecordsData = {};
+    }
 }
 
 /**
@@ -519,42 +543,206 @@ function renderTbDailyTable(data) {
     const tbody = document.getElementById('tb-daily-body');
     tbody.innerHTML = '';
 
-    data.forEach(item => {
+    data.forEach((item, index) => {
         const row = document.createElement('tr');
+        row.className = 'daily-record-row';
+        row.dataset.index = index;
+        row.dataset.tradeDate = item.trade_date;
         const profitRate = parseFloat(item.profit_rate || 0);
         const profitClass = profitRate > 0 ? 'positive' : profitRate < 0 ? 'negative' : '';
 
-        // 解析持仓详情
+        // 解析持仓详情,按收益率排序,只显示收益最高的前5个持仓
         let positionHtml = '-';
         if (item.position_detail) {
             try {
                 const positions = JSON.parse(item.position_detail);
                 if (Array.isArray(positions) && positions.length > 0) {
-                    positionHtml = positions.map(p => {
-                        const profitRateVal = parseFloat(p.profit_rate || 0);
+                    // 按收益率降序排序
+                    positions.sort((a, b) => (parseFloat(b.profit_rate || 0) - parseFloat(a.profit_rate || 0)));
+                    // 只显示收益最高的前4个持仓,1080P显示器上不用换行
+                    const topPositions = positions.slice(0, 4);
+                    const positionItems = topPositions.map(pos => {
+                        const profitRateVal = parseFloat(pos.profit_rate || 0);
                         let cls = '';
                         if (profitRateVal > 0) cls = 'profit';
                         else if (profitRateVal < 0) cls = 'loss';
-                        return `<span class="position-item ${cls}">${p.code || ''} (${profitRateVal >= 0 ? '+' : ''}${profitRateVal.toFixed(1)}%)</span>`;
-                    }).join('');
+                        // 证券代码补0到6位
+                        const code = pos.code || '';
+                        const paddedCode = code.length < 6 ? code.padStart(6, '0') : code;
+                        return `<span class="position-item ${cls}">${paddedCode} (${profitRateVal >= 0 ? '+' : ''}${profitRateVal.toFixed(1)}%)</span>`;
+                    }).join(' ');
+                    positionHtml = positionItems;
                 }
             } catch (e) {
                 positionHtml = item.position_detail;
             }
         }
 
+        // 只有点击买入或卖出次数大于0的行时才展开
+        const hasTrades = (item.buy_count || 0) > 0 || (item.sell_count || 0) > 0;
+        const cursorStyle = hasTrades ? 'cursor: pointer;' : 'cursor: default;';
+        const expandIcon = hasTrades ? '<span class="expand-icon material-icons">expand_more</span>' : '';
+
         row.innerHTML = `
-            <td>${item.trade_date}</td>
-            <td>${item.buy_count || 0}</td>
-            <td>${item.sell_count || 0}</td>
+            <td style="${cursorStyle}">${item.trade_date} ${expandIcon}</td>
+            <td style="${cursorStyle}">${item.buy_count || 0}</td>
+            <td style="${cursorStyle}">${item.sell_count || 0}</td>
             <td>¥${(item.total_asset || 0).toLocaleString()}</td>
             <td class="${profitClass}">${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%</td>
             <td>¥${(item.cash || 0).toLocaleString()}</td>
             <td>${item.position_count || 0} / ${item.max_positions || 5}</td>
             <td class="position-detail-cell">${positionHtml}</td>
         `;
+
         tbody.appendChild(row);
+
+        // 如果有交易记录,添加展开行
+        if (hasTrades) {
+            const detailRow = document.createElement('tr');
+            detailRow.className = 'daily-detail-row';
+            detailRow.dataset.parentIndex = index;
+            detailRow.style.display = 'none';
+
+            const detailContent = renderDailyDetailRow(item.trade_date);
+            detailRow.innerHTML = `<td colspan="8" class="daily-detail-cell">${detailContent}</td>`;
+            tbody.appendChild(detailRow);
+
+            // 添加点击事件
+            row.addEventListener('click', function() {
+                toggleDailyDetail(index, row, detailRow);
+            });
+        }
     });
+}
+
+/**
+ * 渲染每日记录详情行
+ */
+function renderDailyDetailRow(tradeDate) {
+    let html = '<div class="daily-detail-content">';
+
+    // 获取当天的交易记录
+    const trades = tbTradeRecordsData[tradeDate] || [];
+
+    // 分离买入和卖出记录
+    const buyTrades = trades.filter(t => t.trigger_type === 'buy' || t.trigger_type === 'add_position');
+    const sellTrades = trades.filter(t => t.trigger_type === 'sell');
+
+    // 买入信息
+    if (buyTrades.length > 0) {
+        html += `
+            <div class="detail-section">
+                <div class="detail-section-header">
+                    <span class="material-icons" style="color: #2e7d32; font-size: 14px; margin-right: 4px;">trending_up</span>
+                    <span class="detail-section-title">买入记录</span>
+                    <span class="badge buy-badge">共 ${buyTrades.length} 笔</span>
+                </div>
+                <div class="trade-records-table">
+        `;
+
+        buyTrades.forEach(trade => {
+            const price = trade.price || 0;
+            const amount = trade.amount || 0;
+            html += `
+                <div class="trade-record-item buy">
+                    <div class="trade-record-inline">
+                        <span class="trade-code">${trade.code}</span>
+                        <span class="trade-type">${trade.trigger_type === 'buy' ? '买入' : '加仓'}</span>
+                        <span>价格: ¥${price.toFixed(2)}</span>
+                        <span>数量: ${trade.volume}</span>
+                        <span>金额: ¥${amount.toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `</div></div>`;
+    }
+
+    // 卖出信息
+    if (sellTrades.length > 0) {
+        html += `
+            <div class="detail-section">
+                <div class="detail-section-header">
+                    <span class="material-icons" style="color: #d32f2f; font-size: 14px; margin-right: 4px;">trending_down</span>
+                    <span class="detail-section-title">卖出记录</span>
+                    <span class="badge sell-badge">共 ${sellTrades.length} 笔</span>
+                </div>
+                <div class="trade-records-table">
+        `;
+
+        sellTrades.forEach(trade => {
+            const profit = trade.profit || 0;
+            const profitRate = trade.profit_rate || 0;
+            const price = trade.price || 0;
+            const amount = trade.amount || 0;
+            const profitClass = profitRate > 0 ? 'profit' : profitRate < 0 ? 'loss' : 'flat';
+            html += `
+                <div class="trade-record-item sell">
+                    <div class="trade-record-inline">
+                        <span class="trade-code">${trade.code}</span>
+                        <span class="trade-type">卖出</span>
+                        <span class="trade-hold-days">持仓${trade.hold_days || '-'}天</span>
+                        <span>价格: ¥${price.toFixed(2)}</span>
+                        <span>数量: ${trade.volume}</span>
+                        <span>金额: ¥${amount.toLocaleString()}</span>
+                        <span class="profit-label">盈亏:</span>
+                        <span class="profit-amount ${profitClass}">${profit >= 0 ? '+' : ''}¥${profit.toFixed(2)}</span>
+                        <span class="profit-rate ${profitClass}">${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%</span>
+                        ${trade.sell_reason ? `<span class="trade-reason">原因: ${trade.sell_reason}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `</div></div>`;
+    }
+
+    if (buyTrades.length === 0 && sellTrades.length === 0) {
+        html += '<div class="detail-note">暂无交易详情数据</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+/**
+ * 切换每日记录详情展开/收起
+ */
+function toggleDailyDetail(index, row, detailRow) {
+    const isExpanded = detailRow.style.display !== 'none';
+
+    // 切换所有展开行（可选：如果希望同时只展开一行，取消注释以下代码）
+    /*
+    document.querySelectorAll('.daily-detail-row').forEach(dr => {
+        dr.style.display = 'none';
+    });
+    document.querySelectorAll('.expand-icon').forEach(icon => {
+        icon.textContent = 'expand_more';
+        icon.style.transform = 'rotate(0deg)';
+    });
+    document.querySelectorAll('.daily-record-row').forEach(r => {
+        r.classList.remove('expanded');
+    });
+    */
+
+    if (isExpanded) {
+        detailRow.style.display = 'none';
+        row.classList.remove('expanded');
+        const icon = row.querySelector('.expand-icon');
+        if (icon) {
+            icon.textContent = 'expand_more';
+            icon.style.transform = 'rotate(0deg)';
+        }
+    } else {
+        detailRow.style.display = 'table-row';
+        row.classList.add('expanded');
+        const icon = row.querySelector('.expand-icon');
+        if (icon) {
+            icon.textContent = 'expand_less';
+            icon.style.transform = 'rotate(180deg)';
+        }
+    }
 }
 
 /**

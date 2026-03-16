@@ -9,6 +9,7 @@ import pandas as pd
 from datetime import timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
+from utils.data_loader.base_data_preloader import BaseDataPreloader
 from utils.logger_utils import setup_logger
 import config
 
@@ -19,13 +20,12 @@ logger = setup_logger(
 )
 
 
-class MySQLDataPreloader:
+class MySQLDataPreloader(BaseDataPreloader):
     """MySQL数据预加载器"""
 
     def __init__(self):
         """初始化MySQL数据预加载器"""
-        self.all_stock_data: Dict[str, pd.DataFrame] = {}  # {stock_code: DataFrame}
-        self.stock_info_map: Dict[str, Tuple[str, str]] = {}  # {stock_code: (market, name)}
+        super().__init__()
         self.engine = self._create_engine()
 
     def _create_engine(self):
@@ -125,62 +125,3 @@ class MySQLDataPreloader:
         logger.info(f"  内存估算: ~{total_rows * 0.001:.1f} MB")
 
         return result
-
-    def get_stock_data_up_to_date(self, stock_code: str, current_date: str) -> pd.DataFrame:
-        """
-        从预加载数据中获取指定日期之前的历史数据
-
-        Args:
-            stock_code: 股票代码
-            current_date: 当前日期
-
-        Returns:
-            DataFrame: 截止到当前日期的历史数据
-        """
-        if stock_code not in self.all_stock_data:
-            return None
-
-        stock_data = self.all_stock_data[stock_code]
-        current_date_dt = pd.to_datetime(current_date)
-
-        # 筛选截止到当前日期的数据
-        return stock_data[stock_data.index <= current_date_dt]
-
-    def get_stock_data_on_date(self, stock_code: str, current_date: str) -> pd.Series:
-        """
-        从预加载数据中获取指定日期的单只股票数据
-
-        Args:
-            stock_code: 股票代码
-            current_date: 当前日期
-
-        Returns:
-            Series: 当日数据
-        """
-        if stock_code not in self.all_stock_data:
-            return None
-
-        stock_data = self.all_stock_data[stock_code]
-        current_date_dt = pd.to_datetime(current_date)
-
-        if current_date_dt not in stock_data.index:
-            return None
-
-        return stock_data.loc[current_date_dt]
-
-    def get_stock_info(self, stock_code: str) -> Tuple[str, str]:
-        """
-        获取股票信息
-
-        Args:
-            stock_code: 股票代码
-
-        Returns:
-            Tuple[str, str]: (market, name)
-        """
-        return self.stock_info_map.get(stock_code, ('', ''))
-
-    def clear(self) -> None:
-        """清空预加载数据"""
-        self.all_stock_data.clear()
-        self.stock_info_map.clear()

@@ -18,6 +18,7 @@ from database_schema.strategy_trigger_db import StrategyTriggerDB
 import time
 import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import traceback
 
 
 # 自定义PandasData类，添加估值指标字段
@@ -420,7 +421,6 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
                 logger.info(f"触发点位已保存到数据库: {len(strat.trigger_points)} 个点位")
             except Exception as e:
                 logger.error(f"保存触发点位到数据库失败: {str(e)}")
-                import traceback
                 logger.error(traceback.format_exc())
 
         # 返回结果中包含触发点位（供并发模式统一写入数据库）
@@ -445,7 +445,6 @@ def run_backtest(stock_code, market, name, start_date, end_date, strategy_class=
 
     except Exception as e:
         logger.error(f"回测股票 {stock_code} 时出错: {str(e)}")
-        import traceback
         logger.error(traceback.format_exc())
         return None
 
@@ -656,12 +655,10 @@ def batch_backtest(start_date, end_date, strategy_class=SimpleTrendStrategy, sav
                     logger.info(f"触发点位已保存到数据库: 共 {len(all_trigger_points)} 只股票, {total_trigger_count} 个点位")
                 except Exception as e:
                     logger.error(f"保存触发点位到数据库失败: {str(e)}")
-                    import traceback
                     logger.error(traceback.format_exc())
 
         except Exception as e:
             logger.error(f"保存汇总结果到数据库失败: {str(e)}")
-            import traceback
             logger.error(traceback.format_exc())
 
         logger.info(f"{'='*60}")

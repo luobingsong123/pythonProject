@@ -151,6 +151,78 @@ def get_strategies():
         })
 
 
+@app.route('/api/trade_records')
+def get_trade_records():
+    """
+    获取指定日期的交易记录
+    参数:
+        - strategy: 策略名称
+        - start_date: 回测开始日期
+        - end_date: 回测结束日期
+        - trade_date: 交易日期(可选,不传则返回所有日期)
+    """
+    try:
+        strategy_name = request.args.get('strategy', '')
+        start_date = request.args.get('start_date', '')
+        end_date = request.args.get('end_date', '')
+        trade_date = request.args.get('trade_date', '')
+
+        if not strategy_name or not start_date or not end_date:
+            return jsonify({
+                'success': False,
+                'error': '参数不完整'
+            })
+
+        records = db_manager.query_trade_records(
+            strategy_name=strategy_name,
+            backtest_start_date=start_date,
+            backtest_end_date=end_date,
+            start_trade_date=trade_date,
+            end_trade_date=trade_date if trade_date else None
+        )
+
+        data = []
+        for r in records:
+            # 格式化证券代码
+            code = f"{r.market}{str(r.code_int).zfill(6)}"
+
+            data.append({
+                'id': r.id,
+                'trade_date': r.trade_date.strftime('%Y-%m-%d'),
+                'market': r.market,
+                'code_int': r.code_int,
+                'code': code,
+                'trigger_type': r.trigger_type,
+                'price': float(r.price) if r.price else 0,
+                'volume': r.volume or 0,
+                'amount': float(r.amount) if r.amount else 0,
+                'commission': float(r.commission) if r.commission else 0,
+                'profit': float(r.profit) if r.profit else None,
+                'profit_rate': float(r.profit_rate) if r.profit_rate else None,
+                'hold_days': r.hold_days,
+                'sell_reason': r.sell_reason,
+                'signal_info': r.signal_info
+            })
+
+        # 按日期分组
+        grouped_data = {}
+        for item in data:
+            date_key = item['trade_date']
+            if date_key not in grouped_data:
+                grouped_data[date_key] = []
+            grouped_data[date_key].append(item)
+
+        return jsonify({
+            'success': True,
+            'data': grouped_data
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+
 @app.route('/api/backtest_types')
 def get_backtest_types():
     """获取回测类型列表"""
@@ -206,6 +278,8 @@ def get_summary_list():
         })
 
 
+
+
 @app.route('/api/summary_detail')
 def get_summary_detail():
     """
@@ -259,6 +333,8 @@ def get_summary_detail():
         })
 
 
+
+
 # ============ Backtrader 相关接口（复用原有逻辑） ============
 
 @app.route('/api/stocks')
@@ -307,6 +383,8 @@ def get_stocks():
             'success': False,
             'error': str(e)
         })
+
+
 
 
 @app.route('/api/backtest_periods')
@@ -359,6 +437,8 @@ def get_backtest_periods():
         })
 
 
+
+
 @app.route('/api/trigger_points')
 def get_trigger_points():
     """获取触发点位列表"""
@@ -406,6 +486,8 @@ def get_trigger_points():
         })
 
 
+
+
 @app.route('/api/kline_data')
 def get_kline_data():
     """获取K线数据"""
@@ -449,6 +531,8 @@ def get_kline_data():
             'success': False,
             'error': str(e)
         })
+
+
 
 
 # ============ Time Based 回测相关接口 ============
@@ -510,6 +594,8 @@ def get_strategy_params():
             'success': False,
             'error': str(e)
         })
+
+
 
 
 @app.route('/api/profit_chart')
@@ -585,6 +671,8 @@ def get_profit_chart():
             'success': False,
             'error': str(e)
         })
+
+
 
 
 def get_benchmark_returns(start_date, end_date, target_dates, benchmark='sh000001'):
@@ -721,6 +809,8 @@ def get_daily_records():
             'success': False,
             'error': str(e)
         })
+
+
 
 
 @app.route('/api/update_market_data', methods=['POST'])

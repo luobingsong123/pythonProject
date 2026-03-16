@@ -70,7 +70,7 @@ BACKTEST_CONFIG = {
     'max_daily_buys': 10,
     'position_size_pct': 0.01,
     'min_hold_days': 1,
-    'lookback_days': 365,
+    'lookback_days': 10,
     'enable_blackout': False,
     'blackout_periods': [],
 }
@@ -209,6 +209,21 @@ class TimeBasedBacktester:
             )
             if deleted_count > 0:
                 logger.info(f"已删除旧的每日记录: {deleted_count} 条")
+            
+            # 删除旧交易记录
+            deleted_trade_count = strategy_db.delete_trade_records(
+                strategy_name=strategy_name,
+                backtest_start_date=self.config.start_date,
+                backtest_end_date=self.config.end_date
+            )
+            if deleted_trade_count > 0:
+                logger.info(f"已删除旧的交易记录: {deleted_trade_count} 条")
+            
+            # 将数据库连接传递给交易执行器
+            self.trade_executor.strategy_db = strategy_db
+            self.trade_executor.strategy_name = strategy_name
+            self.trade_executor.backtest_start_date = self.config.start_date
+            self.trade_executor.backtest_end_date = self.config.end_date
 
         # 获取交易日历
         trading_dates = self.get_trade_calendar(self.config.start_date, self.config.end_date)
@@ -227,11 +242,18 @@ class TimeBasedBacktester:
 
         # 预加载数据
         preload_start = time.time()
+        # 使用策略声明的 lookback_days，如果策略未声明则使用配置中的值
+        lookback_days = self.config.lookback_days
+        if hasattr(self.strategy, 'get_lookback_days'):
+            strategy_lookback = self.strategy.get_lookback_days() * 1.65
+            # 取策略需求和配置值中的较大者，确保有足够数据
+            lookback_days = max(lookback_days, strategy_lookback)
+
         self.data_preloader.preload_all_stock_data(
             stock_codes,
             self.config.start_date,
             self.config.end_date,
-            self.config.lookback_days
+            lookback_days
         )
         preload_time = time.time() - preload_start
         logger.info(f"数据预加载耗时: {preload_time:.2f} 秒")
@@ -635,7 +657,7 @@ def main():
     """主函数"""
     # 使用 codebuddy 策略
     from utils.strategies import get_strategy
-    strategy = get_strategy('value')
+    strategy = get_strategy('ValueStrategy')
     backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
 
     # 执行回测

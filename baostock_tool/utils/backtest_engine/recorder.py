@@ -177,7 +177,7 @@ class BacktestRecorder:
                 summary_json=summary_json,
                 stock_count=len(trigger_by_stock) if trigger_points else 0,
                 execution_time=execution_time,
-                backtest_framework='time_based_questdb',
+                backtest_framework='time_based',
                 strategy_params_json=strategy_params
             )
 

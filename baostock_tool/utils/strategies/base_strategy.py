@@ -139,6 +139,18 @@ class BaseStrategy(ABC):
         """
         pass
     
+    def get_lookback_days(self) -> int:
+        """
+        获取策略所需的数据回溯天数
+        
+        用于预加载数据时确定需要在回测开始日期之前加载多少天的数据。
+        子类可以覆盖此方法以声明需要更多历史数据的策略。
+        
+        Returns:
+            int: 回溯天数，默认返回 10 天
+        """
+        return 10
+    
     def check_buy_signal_batch(
         self,
         stock_codes: List[str],

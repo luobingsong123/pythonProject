@@ -69,7 +69,7 @@ BACKTEST_CONFIG = {
     'max_daily_buys': 10,
     'position_size_pct': 0.01,
     'min_hold_days': 1,
-    'lookback_days': 365,
+    'lookback_days': 10,
     'enable_blackout': False,
     'blackout_periods': [],
 }
@@ -177,9 +177,10 @@ class TimeBasedBacktester:
         """获取股票列表"""
         query = """
         SELECT market, code_int, name
-        FROM stock_basic_info
+        FROM stock_basic_info 
         WHERE (market = 'sh' AND code_int > 600000 AND code_int < 610000)
-           OR (market = 'sz' AND code_int > 0 AND code_int < 310000)
+           OR (market = 'sz' AND code_int > 0 AND code_int < 10000)
+           OR (market = 'sz' AND code_int > 300000 AND code_int < 310000)
         ORDER BY code_int
         """
         df = pd.read_sql(query, self.engine)
@@ -224,11 +225,19 @@ class TimeBasedBacktester:
 
         # 预加载数据
         preload_start = time.time()
+        
+        # 使用策略声明的 lookback_days，如果策略未声明则使用配置中的值
+        lookback_days = self.config.lookback_days
+        if hasattr(self.strategy, 'get_lookback_days'):
+            strategy_lookback = self.strategy.get_lookback_days() * 1.65
+            # 取策略需求和配置值中的较大者，确保有足够数据
+            lookback_days = max(lookback_days, strategy_lookback)
+        
         self.data_preloader.preload_all_stock_data(
             stock_codes,
             self.config.start_date,
             self.config.end_date,
-            self.config.lookback_days
+            lookback_days
         )
         preload_time = time.time() - preload_start
         logger.info(f"数据预加载耗时: {preload_time:.2f} 秒")
@@ -628,9 +637,9 @@ class TimeBasedBacktester:
 
 def main():
     """主函数"""
-    # 使用 codebuddy 策略
     from utils.strategies import get_strategy
-    strategy = get_strategy('codebuddy')
+    # 使用 codebuddy 策略
+    strategy = get_strategy('value')
     backtester = TimeBasedBacktester(BACKTEST_CONFIG, strategy=strategy)
 
     # 执行回测

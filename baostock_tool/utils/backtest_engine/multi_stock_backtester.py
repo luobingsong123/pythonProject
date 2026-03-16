@@ -30,7 +30,6 @@ class MultiStockBacktester:
             cerebro = bt.Cerebro()
             cerebro.addstrategy(MACDStrategy)
 
-            # 加载数据（提前2年用于指标初始化）
             data = self.stock_loader.load_single_stock_data(
                 market, code_int, '2018-01-01', '2025-12-31'
             )

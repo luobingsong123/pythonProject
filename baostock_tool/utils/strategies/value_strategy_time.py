@@ -53,6 +53,10 @@ class ValueStrategyTimeBased(BaseStrategy):
         """需要至少MA周期的数据"""
         return self.params['ma_period']
     
+    def get_lookback_days(self) -> int:
+        """需要预加载 MA 周期的数据用于计算均线"""
+        return self.params['ma_period']
+    
     def check_buy_signal(
         self, 
         stock_code: str,

@@ -21,7 +21,8 @@ logger = setup_logger(
 class TradeExecutor:
     """交易执行器"""
 
-    def __init__(self, account: Account, portfolio: PortfolioManager, commission: float):
+    def __init__(self, account: Account, portfolio: PortfolioManager, commission: float,
+                 strategy_db=None, strategy_name=None, backtest_start_date=None, backtest_end_date=None):
         """
         初始化交易执行器
 
@@ -29,12 +30,20 @@ class TradeExecutor:
             account: 账户管理器
             portfolio: 持仓管理器
             commission: 手续费率
+            strategy_db: 策略数据库管理器（可选）
+            strategy_name: 策略名称（可选）
+            backtest_start_date: 回测开始日期（可选）
+            backtest_end_date: 回测结束日期（可选）
         """
         self.account = account
         self.portfolio = portfolio
         self.commission_rate = commission
         self.trading_records: List[Dict[str, Any]] = []  # 交易记录
         self.trigger_points: List[Dict[str, Any]] = []  # 触发点位记录
+        self.strategy_db = strategy_db
+        self.strategy_name = strategy_name
+        self.backtest_start_date = backtest_start_date
+        self.backtest_end_date = backtest_end_date
 
     def execute_buy(
         self,
@@ -132,6 +141,26 @@ class TradeExecutor:
                     f"价格: {price:.2f} | 数量: {volume} | 金额: {amount:.2f} | 手续费: {commission:.2f} | "
                     f"总资产: {total_value:,.2f} | 盈亏: {profit_rate:+.2f}%")
 
+        # 记录到数据库
+        if self.strategy_db and self.strategy_name and self.backtest_start_date and self.backtest_end_date:
+            try:
+                self.strategy_db.insert_trade_record(
+                    strategy_name=self.strategy_name,
+                    backtest_start_date=self.backtest_start_date,
+                    backtest_end_date=self.backtest_end_date,
+                    trade_date=current_date,
+                    market=market,
+                    code_int=int(stock_code),
+                    trigger_type='buy',
+                    price=price,
+                    volume=volume,
+                    amount=amount,
+                    commission=commission,
+                    signal_info=signal_info
+                )
+            except Exception as e:
+                logger.debug(f"记录买入交易到数据库失败: {e}")
+
         return True
 
     def execute_sell(
@@ -226,6 +255,30 @@ class TradeExecutor:
                     f"盈亏: {profit:.2f} ({profit_rate * 100:.2f}%) | 原因: {sell_reason} | "
                     f"总资产: {total_value:,.2f} | 总盈亏: {total_profit_rate:+.2f}%")
 
+        # 记录到数据库
+        if self.strategy_db and self.strategy_name and self.backtest_start_date and self.backtest_end_date:
+            try:
+                self.strategy_db.insert_trade_record(
+                    strategy_name=self.strategy_name,
+                    backtest_start_date=self.backtest_start_date,
+                    backtest_end_date=self.backtest_end_date,
+                    trade_date=current_date,
+                    market=position.market,
+                    code_int=int(stock_code),
+                    trigger_type='sell',
+                    price=price,
+                    volume=volume,
+                    amount=amount,
+                    commission=commission,
+                    profit=profit,
+                    profit_rate=profit_rate * 100,  # 转换为百分比
+                    hold_days=position.hold_days,
+                    sell_reason=sell_reason,
+                    signal_info={'sell_reason': sell_reason}
+                )
+            except Exception as e:
+                logger.debug(f"记录卖出交易到数据库失败: {e}")
+
         # 移除持仓
         self.portfolio.remove_position(stock_code)
 
@@ -314,6 +367,26 @@ class TradeExecutor:
                     f"价格: {add_price:.2f} | 数量: {add_volume} | 金额: {amount:.2f} | 手续费: {commission:.2f} | "
                     f"新持仓: {position.volume} | 新成本: {position.avg_cost:.2f} | "
                     f"总资产: {total_value:,.2f} | 盈亏: {profit_rate:+.2f}%")
+
+        # 记录到数据库
+        if self.strategy_db and self.strategy_name and self.backtest_start_date and self.backtest_end_date:
+            try:
+                self.strategy_db.insert_trade_record(
+                    strategy_name=self.strategy_name,
+                    backtest_start_date=self.backtest_start_date,
+                    backtest_end_date=self.backtest_end_date,
+                    trade_date=current_date,
+                    market=position.market,
+                    code_int=int(stock_code),
+                    trigger_type='add_position',
+                    price=add_price,
+                    volume=add_volume,
+                    amount=amount,
+                    commission=commission,
+                    signal_info=add_info
+                )
+            except Exception as e:
+                logger.debug(f"记录加仓交易到数据库失败: {e}")
 
         return True
 
