@@ -63,14 +63,19 @@ class ConfigLoader:
     def _load_redis_config(self) -> RedisConfig:
         """加载 Redis 配置"""
         section = 'redis'
-        
+
         # 处理密码（可能为空）
         password = self.config.get(section, 'password', fallback='')
         password = password if password else None
-        
+
         # 处理布尔值
         decode_responses = self.config.getboolean(section, 'decode_responses', fallback=True)
-        
+
+        # 处理模式
+        mode = self.config.get(section, 'mode', fallback='auto').lower()
+        if mode not in ['single', 'cluster', 'auto']:
+            mode = 'auto'
+
         return RedisConfig(
             host=self.config.get(section, 'host', fallback='localhost'),
             port=self.config.getint(section, 'port', fallback=6379),
@@ -80,7 +85,8 @@ class ConfigLoader:
             decode_responses=decode_responses,
             socket_timeout=self.config.getint(section, 'socket_timeout', fallback=5),
             socket_connect_timeout=self.config.getint(section, 'socket_connect_timeout', fallback=5),
-            max_connections=self.config.getint(section, 'max_connections', fallback=50)
+            max_connections=self.config.getint(section, 'max_connections', fallback=50),
+            mode=mode
         )
     
     def _load_database_config(self) -> DatabaseConfig:

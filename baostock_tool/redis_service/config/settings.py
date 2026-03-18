@@ -17,6 +17,8 @@ class RedisConfig(BaseModel):
     socket_timeout: int = 5
     socket_connect_timeout: int = 5
     max_connections: int = 50
+    # Redis 模式: "single" (单机), "cluster" (集群), "auto" (自动检测)
+    mode: str = "auto"
 
 
 class DatabaseConfig(BaseModel):

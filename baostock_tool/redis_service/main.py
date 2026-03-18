@@ -18,11 +18,6 @@ from config.config_loader import load_config, update_global_settings
 from backtest.engine import BacktestEngine
 from examples.consumer_demo import StockConsumer
 
-# 加载配置
-config = load_config('config/config.ini')
-
-# 更新全局配置
-update_global_settings('config/config.ini')
 
 class RedisServiceManager:
     """Redis 服务管理器"""
