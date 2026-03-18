@@ -206,7 +206,7 @@ class StockSelector:
             )
             
             # 获取近5日最高价
-            ma5_high = self.query_service.get_ma5_high(market, code, date)
+            ma5_high = float(self.query_service.get_ma5_high(market, code, date))
             
             # 获取5天分钟数据
             minute_data_5d = self.query_service.get_minute_data_5d(
@@ -233,7 +233,7 @@ class StockSelector:
                 name=result.name,
                 basic_info=BasicInfo(
                     prev_close=float(result.signals.get("close", 0)),
-                    ma10=ma_values.get(10, 0),
+                    ma10=float(ma_values.get(10, 0)),
                     ma5_high=ma5_high,
                     volume_ratio=1.2,  # 简化计算
                     turnover_rate=float(result.signals.get("turnover", 0.5))
@@ -254,9 +254,9 @@ class StockSelector:
                     minute_data_5d[4] if len(minute_data_5d) > 4 else []
                 ),
                 technical_indicators=TechnicalIndicators(
-                    ma5=ma_values.get(5, 0),
-                    ma10=ma_values.get(10, 0),
-                    ma20=ma_values.get(20, 0),
+                    ma5=float(ma_values.get(5, 0)),
+                    ma10=float(ma_values.get(10, 0)),
+                    ma20=float(ma_values.get(20, 0)),
                     vol_ma5=float(result.signals.get("volume", 0)) * 0.8,
                     vol_ma10=float(result.signals.get("volume", 0)) * 0.9
                 ),

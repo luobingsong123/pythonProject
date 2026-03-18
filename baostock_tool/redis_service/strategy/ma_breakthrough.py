@@ -61,7 +61,7 @@ class MABreakthroughStrategy(BaseStrategy):
                 market, code, date, [self.ma_period]
             )
             
-            ma = ma_values.get(self.ma_period, 0)
+            ma = float(ma_values.get(self.ma_period, 0))
             close = float(stock.get("close", 0))
             preclose = float(stock.get("preclose", 0))
             

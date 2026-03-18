@@ -312,7 +312,8 @@ class StockQueryService:
                 cursor.execute(sql, (market, code, formatted_start, formatted_end, days_needed))
                 rows = cursor.fetchall()
                 
-                closes = [row["close"] for row in rows]
+                # 将 Decimal 转换为 float
+                closes = [float(row["close"]) for row in rows]
                 
                 result = {}
                 for period in periods:
