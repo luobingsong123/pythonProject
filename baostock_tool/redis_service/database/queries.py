@@ -65,13 +65,13 @@ class StockQueryService:
                 if market:
                     sql = """
                         SELECT 
-                            market, code_int, `name`,
-                            open, high, low, close, preclose,
-                            volume, amount, turn, pctChg,
-                            peTTM, pbMRQ, isST
+                            d.market, d.code_int, b.`name`,
+                            d.open, d.high, d.low, d.close, d.preclose,
+                            d.volume, d.amount, d.turn, d.pctChg,
+                            d.peTTM, d.pbMRQ, d.isST
                         FROM stock_daily_data d
                         JOIN stock_basic_info b ON d.market = b.market AND d.code_int = b.code_int
-                        WHERE date = %s AND d.market = %s
+                        WHERE d.date = %s AND d.market = %s
                           AND (
                             (d.market = 'sh' AND d.code_int BETWEEN 600000 AND 689999)
                             OR (d.market = 'sz' AND (
@@ -79,7 +79,7 @@ class StockQueryService:
                                 OR d.code_int BETWEEN 300001 AND 301999
                             ))
                           )
-                        ORDER BY amount DESC
+                        ORDER BY d.amount DESC
                         LIMIT %s
                     """
                     cursor.execute(sql, (formatted_date, market, limit))
