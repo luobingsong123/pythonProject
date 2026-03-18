@@ -9,23 +9,24 @@ from config.settings import RedisConfig, settings
 
 class RedisPool:
     """Redis连接池管理器"""
-    
+
     _pool: Optional[redis.ConnectionPool] = None
     _client: Optional[redis.Redis] = None
-    
+    _is_cluster = False
+
     def __init__(self, config: Optional[RedisConfig] = None):
         """
         初始化连接池
-        
+
         Args:
             config: Redis配置，如果不提供则使用默认配置
         """
         self.config = config or settings.redis
-    
+
     def get_connection_pool(self) -> redis.ConnectionPool:
         """
         获取Redis连接池
-        
+
         Returns:
             redis.ConnectionPool: 连接池实例
         """
@@ -39,28 +40,112 @@ class RedisPool:
                 decode_responses=self.config.decode_responses,
                 socket_timeout=self.config.socket_timeout,
                 socket_connect_timeout=self.config.socket_connect_timeout,
-                max_connections=self.config.max_connections
+                max_connections=self.config.max_connections,
+                health_check_interval=30  # 健康检查间隔
             )
         return self._pool
-    
+
     def get_client(self) -> redis.Redis:
         """
         获取Redis客户端
-        
+
         Returns:
             redis.Redis: Redis客户端实例
         """
         if self._client is None:
-            self._client = redis.Redis(connection_pool=self.get_connection_pool())
+            self._client = self._create_client()
         return self._client
+
+    def _create_client(self) -> redis.Redis:
+        """
+        创建Redis客户端（自动检测单机/集群模式）
+
+        Returns:
+            redis.Redis: Redis客户端实例
+        """
+        print(f"正在连接 Redis: {self.config.host}:{self.config.port}")
+
+        # 先尝试单机模式
+        try:
+            client = redis.Redis(
+                connection_pool=self.get_connection_pool(),
+                decode_responses=self.config.decode_responses
+            )
+
+            # 测试连接
+            client.ping()
+            self._is_cluster = False
+            print(f"✓ Redis 连接成功 (单机模式): {self.config.host}:{self.config.port}")
+            return client
+
+        except redis.exceptions.ConnectionError as e:
+            error_msg = str(e)
+            # 检查是否是集群错误
+            if 'CLUSTERDOWN' in error_msg or 'MOVED' in error_msg or 'ASK' in error_msg:
+                print("⚠ 检测到 Redis 集群模式，切换到集群客户端")
+                return self._create_cluster_client()
+            else:
+                print(f"✗ Redis 连接失败: {e}")
+                raise
+        except Exception as e:
+            print(f"✗ Redis 连接失败: {e}")
+            raise
+
+    def _create_cluster_client(self) -> redis.Redis:
+        """
+        创建 Redis 集群客户端
+
+        Returns:
+            redis.Redis: Redis客户端实例
+        """
+        try:
+            from redis.cluster import RedisCluster
+
+            # 使用集群模式
+            client = RedisCluster(
+                host=self.config.host,
+                port=self.config.port,
+                password=self.config.password,
+                decode_responses=self.config.decode_responses,
+                socket_timeout=self.config.socket_timeout,
+                socket_connect_timeout=self.config.socket_connect_timeout,
+                skip_full_coverage_check=True,
+                max_connections=self.config.max_connections
+            )
+
+            # 测试连接
+            client.ping()
+            self._is_cluster = True
+            print(f"✓ Redis 连接成功 (集群模式): {self.config.host}:{self.config.port}")
+            return client
+
+        except ImportError:
+            print("✗ 未安装 redis-py-cluster，请执行: pip install redis-py-cluster")
+            raise Exception("Redis cluster support requires redis-py-cluster package")
+        except Exception as e:
+            print(f"✗ Redis 集群模式连接失败: {e}")
+            raise
     
     def close(self):
         """关闭连接池"""
         if self._client:
-            self._client.close()
+            try:
+                if self._is_cluster:
+                    # 集群模式关闭
+                    self._client.close()
+                else:
+                    # 单机模式关闭
+                    self._client.close()
+            except Exception as e:
+                print(f"关闭 Redis 客户端时出错: {e}")
             self._client = None
-        if self._pool:
-            self._pool.disconnect()
+
+        if self._pool and not self._is_cluster:
+            # 集群模式不需要手动关闭连接池
+            try:
+                self._pool.disconnect()
+            except Exception as e:
+                print(f"关闭 Redis 连接池时出错: {e}")
             self._pool = None
     
     def __enter__(self):
