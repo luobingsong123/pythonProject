@@ -50,31 +50,46 @@ class DatabasePool:
     def get_connection(self) -> pymysql.Connection:
         """
         获取数据库连接
-        
+
         Returns:
             pymysql.Connection: 数据库连接
         """
+        # 先从连接池获取
         if self._pool:
             return self._pool.pop()
-        
+
+        # 如果未达到最大连接数，创建新连接
         if self._in_use < self._max_size:
             self._in_use += 1
             return pymysql.connect(**self.config)
-        
+
+        # 连接池已耗尽
         raise Exception("Connection pool exhausted")
-    
+
     def release_connection(self, conn: pymysql.Connection):
         """
         释放连接回连接池
-        
+
         Args:
             conn: 数据库连接
         """
         if conn:
+            # 尝试回收到连接池
             if len(self._pool) < self._max_size:
-                self._pool.append(conn)
+                # 检查连接是否仍然有效
+                try:
+                    conn.ping(reconnect=False)
+                    self._pool.append(conn)
+                    return
+                except:
+                    conn.close()
+                    self._in_use -= 1
             else:
-                conn.close()
+                # 连接池已满，关闭连接
+                try:
+                    conn.close()
+                except:
+                    pass
                 self._in_use -= 1
     
     @contextmanager
@@ -133,7 +148,7 @@ def init_db_pool(config: Dict[str, Any]) -> DatabasePool:
 def get_db_connection() -> pymysql.Connection:
     """
     获取全局默认数据库连接
-    
+
     Returns:
         pymysql.Connection: 数据库连接
     """
@@ -141,6 +156,18 @@ def get_db_connection() -> pymysql.Connection:
     if _default_db_pool is None:
         raise Exception("Database pool not initialized. Call init_db_pool() first.")
     return _default_db_pool.get_connection()
+
+
+def release_db_connection(conn: pymysql.Connection):
+    """
+    释放全局默认数据库连接
+
+    Args:
+        conn: 数据库连接
+    """
+    global _default_db_pool
+    if _default_db_pool:
+        _default_db_pool.release_connection(conn)
 
 
 def close_db_pool():

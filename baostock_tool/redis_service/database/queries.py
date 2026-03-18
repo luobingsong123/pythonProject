@@ -25,14 +25,15 @@ class StockQueryService:
             return self._db_pool.connection()
         # 使用全局连接池
         from contextlib import contextmanager
+        from .connection import get_db_connection, release_db_connection
+
         @contextmanager
         def wrapper():
             conn = get_db_connection()
             try:
                 yield conn
             finally:
-                # 全局连接池会自动管理
-                pass
+                release_db_connection(conn)
         return wrapper()
     
     def get_daily_data(
