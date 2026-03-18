@@ -76,10 +76,19 @@ class StockSelector:
             List[StockInfo]: 选股结果
         """
         # 获取日线数据
+        print(f"\n[DEBUG] 查询日K线数据: date={date}, market={market}, limit=500")
         daily_data = self.query_service.get_daily_data(date, market, limit=500)
         
         if not daily_data:
+            print(f"[DEBUG] 未查到日K线数据")
             return []
+        
+        # 调试打印：日K线数据样本
+        print(f"[DEBUG] 查到 {len(daily_data)} 条日K线数据")
+        print(f"[DEBUG] 前3条数据样本:")
+        for i, stock in enumerate(daily_data[:3], 1):
+            print(f"    [{i}] {stock.get('market')}:{stock.get('code_int')} {stock.get('name')}")
+            print(f"        收盘价: {stock.get('close')}, 成交额: {stock.get('amount')}, 换手率: {stock.get('turn')}")
         
         # 如果有策略ID但没有策略实例，创建策略
         if strategy_id and not self.strategy:

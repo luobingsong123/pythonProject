@@ -2,9 +2,11 @@
 股票数据查询服务
 """
 
+import math
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from database.connection import DatabasePool, get_db_connection
+from config.settings import settings
 
 
 class StockQueryService:
@@ -124,7 +126,7 @@ class StockQueryService:
             frequency: 频率(5/15/30/60)
             
         Returns:
-            List[Dict]: 分钟线数据
+            List[Dict]: 分钟线数据，查不到时返回全-1数据
         """
         formatted_date = f"{date[:4]}-{date[4:6]}-{date[6:]}"
         
@@ -141,7 +143,77 @@ class StockQueryService:
                     ORDER BY time
                 """
                 cursor.execute(sql, (formatted_date, market, code, frequency))
-                return cursor.fetchall()
+                result = cursor.fetchall()
+                
+                # 查不到数据时返回全-1数据
+                if not result:
+                    return self._generate_empty_minute_data(date, frequency)
+                
+                return result
+    
+    def _generate_empty_minute_data(self, date: str, frequency: int = 5) -> List[Dict[str, Any]]:
+        """
+        生成空的分钟线数据（全-1）
+        
+        Args:
+            date: 日期
+            frequency: 频率
+            
+        Returns:
+            List[Dict]: 全-1的分钟线数据
+        """
+        result = []
+        # 5分钟线时间点：9:30-11:30, 13:00-15:00
+        # 上午：9:30, 9:35, ..., 11:30 (24个点)
+        # 下午：13:00, 13:05, ..., 15:00 (24个点)
+        
+        intervals = frequency  # 分钟间隔
+        
+        # 上午时段 9:30-11:30
+        for hour in range(9, 12):
+            start_min = 30 if hour == 9 else 0
+            end_min = 60 if hour < 11 else 30
+            for minute in range(start_min, end_min, intervals):
+                time_str = f"{date}{hour:02d}{minute:02d}00"
+                result.append({
+                    "date": date,
+                    "time": time_str,
+                    "open": -1,
+                    "high": -1,
+                    "low": -1,
+                    "close": -1,
+                    "volume": -1,
+                    "amount": -1
+                })
+        
+        # 下午时段 13:00-15:00
+        for hour in range(13, 15):
+            for minute in range(0, 60, intervals):
+                time_str = f"{date}{hour:02d}{minute:02d}00"
+                result.append({
+                    "date": date,
+                    "time": time_str,
+                    "open": -1,
+                    "high": -1,
+                    "low": -1,
+                    "close": -1,
+                    "volume": -1,
+                    "amount": -1
+                })
+        
+        # 15:00
+        result.append({
+            "date": date,
+            "time": f"{date}150000",
+            "open": -1,
+            "high": -1,
+            "low": -1,
+            "close": -1,
+            "volume": -1,
+            "amount": -1
+        })
+        
+        return result
     
     def get_minute_data_5d(
         self,
@@ -249,13 +321,14 @@ class StockQueryService:
                 cursor.execute(sql, (market, code))
                 return cursor.fetchone()
     
-    def _get_trade_dates(self, end_date: str, days: int) -> List[str]:
+    def _get_trade_dates(self, end_date: str, days: int, preload: bool = False) -> List[str]:
         """
         获取最近N个交易日日期
         
         Args:
             end_date: 结束日期
             days: 天数
+            preload: 是否启用预加载（开始日期提前 preload_days * 1.68 个交易日）
             
         Returns:
             List[str]: 日期列表(YYYYMMDD格式)
@@ -263,6 +336,12 @@ class StockQueryService:
         # 简化实现：假设每天都是交易日
         # 实际应该从数据库查询交易日历
         end = datetime.strptime(end_date, "%Y%m%d")
+        
+        if preload and days > 0:
+            # 预加载：开始日期提前 preload_days * 1.68 个交易日
+            preload_offset = math.ceil(settings.backtest.preload_days * 1.68)
+            days = days + preload_offset
+        
         dates = []
         
         for i in range(days):
@@ -294,7 +373,8 @@ class StockQueryService:
         # 需要获取的数据天数
         days_needed = max_period + 5  # 多取几天确保有足够数据
         
-        dates = self._get_trade_dates(end_date, days_needed)
+        # 启用预加载
+        dates = self._get_trade_dates(end_date, days_needed, preload=True)
         start_date = dates[0]
         
         formatted_start = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
@@ -342,7 +422,8 @@ class StockQueryService:
         Returns:
             float: 近5日最高价
         """
-        dates = self._get_trade_dates(end_date, 5)
+        # 启用预加载
+        dates = self._get_trade_dates(end_date, 5, preload=True)
         start_date = dates[0]
         
         formatted_start = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"

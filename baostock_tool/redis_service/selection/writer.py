@@ -53,6 +53,7 @@ class SelectionWriter(BaseRedisService):
             str: 写入消息的ID
         """
         from utils.serializer import TimestampUtil
+        import json
         
         message = SelectionMessage(
             type="stock_selection",
@@ -66,6 +67,16 @@ class SelectionWriter(BaseRedisService):
         
         stream_key = SelectionParser.build_stream_key(date)
         fields = SelectionParser.to_stream_fields(message)
+        
+        # 调试打印：推送到Redis的数据
+        print(f"\n[DEBUG] 推送选股数据到 Redis:")
+        print(f"  Stream Key: {stream_key}")
+        print(f"  批次ID: {batch_id}")
+        print(f"  策略ID: {strategy_id}")
+        print(f"  选股数量: {len(stocks)}")
+        print(f"  股票列表:")
+        for i, stock in enumerate(stocks, 1):
+            print(f"    [{i}] {stock.exchange}:{stock.symbol} {stock.name}")
         
         return self._client.xadd(
             stream_key,

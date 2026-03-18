@@ -147,7 +147,8 @@ class ConfigLoader:
             use_strategy=use_strategy,
             default_selection_count=self.config.getint(section, 'default_selection_count', fallback=10),
             strategy_params=strategy_params,
-            trade_dates=trade_dates
+            trade_dates=trade_dates,
+            preload_days=self.config.getint(section, 'preload_days', fallback=30)
         )
     
     def get_custom_config(self, section: str) -> Dict[str, Any]:

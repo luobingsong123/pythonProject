@@ -3,6 +3,7 @@ Tick数据发布器
 """
 
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
 from database.queries import StockQueryService
 from market.publisher import SnapshotPublisher
 from models.snapshot import SnapshotData, MarketQuote
@@ -52,10 +53,14 @@ class TickDataPublisher:
         tick_data = self.query_service.get_tick_data(date, market, code)
         
         if not tick_data:
-            print(f"    No tick data found for {exchange}:{symbol} on {date}")
-            return 0
+            # 查不到数据时，推送一天全-1的数据
+            print(f"    [DEBUG] 未查到Tick数据，生成空数据推送")
+            tick_data = self._generate_empty_tick_data(date)
+        else:
+            print(f"    [DEBUG] 查到 {len(tick_data)} 条Tick数据")
         
         count = 0
+        sample_printed = False
         
         # 发布每条Tick数据
         for tick in tick_data:
@@ -64,10 +69,105 @@ class TickDataPublisher:
             )
             
             if snapshot:
+                # 调试打印：前3条数据样本
+                if not sample_printed and count < 3:
+                    print(f"    [DEBUG] 推送Tick样本 #{count+1}:")
+                    print(f"      时间: {snapshot.data.timestamp}")
+                    print(f"      最新价: {snapshot.data.last_price}")
+                    print(f"      成交量: {snapshot.data.volume}")
+                    print(f"      成交额: {snapshot.data.amount}")
+                    print(f"      买一: {snapshot.data.bid_price[0]} x {snapshot.data.bid_volume[0]}")
+                    print(f"      卖一: {snapshot.data.ask_price[0]} x {snapshot.data.ask_volume[0]}")
+                    if count == 2:
+                        sample_printed = True
+                
                 self.publisher.publish(snapshot)
                 count += 1
         
         return count
+    
+    def _generate_empty_tick_data(self, date: str) -> List[Dict[str, Any]]:
+        """
+        生成一天的空Tick数据（全-1）
+        
+        Args:
+            date: 日期 YYYYMMDD
+            
+        Returns:
+            List[Dict]: 全-1的tick数据列表
+        """
+        result = []
+        
+        # 交易时段：9:30-11:30, 13:00-15:00
+        # 每3秒一条
+        year = int(date[:4])
+        month = int(date[4:6])
+        day = int(date[6:8])
+        
+        base_date = datetime(year, month, day)
+        
+        # 上午时段 9:30-11:30
+        start_am = base_date.replace(hour=9, minute=30, second=0)
+        end_am = base_date.replace(hour=11, minute=30, second=0)
+        
+        current = start_am
+        while current <= end_am:
+            result.append(self._create_empty_tick(current))
+            current += timedelta(seconds=3)
+        
+        # 下午时段 13:00-15:00
+        start_pm = base_date.replace(hour=13, minute=0, second=0)
+        end_pm = base_date.replace(hour=15, minute=0, second=0)
+        
+        current = start_pm
+        while current <= end_pm:
+            result.append(self._create_empty_tick(current))
+            current += timedelta(seconds=3)
+        
+        return result
+    
+    def _create_empty_tick(self, dt: datetime) -> Dict[str, Any]:
+        """
+        创建单条空tick数据
+        
+        Args:
+            dt: 时间
+            
+        Returns:
+            Dict: 空tick数据
+        """
+        return {
+            "TradingTime": dt.strftime("%Y%m%d%H%M%S"),
+            "PreClosePrice": -1,
+            "OpenPrice": -1,
+            "HighPrice": -1,
+            "LowPrice": -1,
+            "LastPrice": -1,
+            "TotalVolume": -1,
+            "TradeVolume": -1,
+            "TotalAmount": -1,
+            "TradeAmount": -1,
+            "BuyPrice01": -1,
+            "BuyPrice02": -1,
+            "BuyPrice03": -1,
+            "BuyPrice04": -1,
+            "BuyPrice05": -1,
+            "BuyVolume01": -1,
+            "BuyVolume02": -1,
+            "BuyVolume03": -1,
+            "BuyVolume04": -1,
+            "BuyVolume05": -1,
+            "SellPrice01": -1,
+            "SellPrice02": -1,
+            "SellPrice03": -1,
+            "SellPrice04": -1,
+            "SellPrice05": -1,
+            "SellVolume01": -1,
+            "SellVolume02": -1,
+            "SellVolume03": -1,
+            "SellVolume04": -1,
+            "SellVolume05": -1
+        }
     
     def _convert_tick_to_snapshot(
         self,

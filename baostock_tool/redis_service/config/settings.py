@@ -66,6 +66,8 @@ class BacktestConfig(BaseModel):
     strategy_params: dict = Field(default_factory=dict)
     # 交易日列表
     trade_dates: List[str] = Field(default_factory=list)
+    # 数据预加载天数（日K线开始日期提前 preload_days * 1.68 个交易日）
+    preload_days: int = 30
 
 
 class Settings(BaseModel):
