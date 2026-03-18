@@ -109,29 +109,44 @@ class RedisPool:
             redis.Redis: Redis客户端实例
         """
         # 先尝试单机模式
+        print("尝试单机模式连接...")
         try:
             client = redis.Redis(
                 connection_pool=self.get_connection_pool(),
                 decode_responses=self.config.decode_responses
             )
 
-            # 测试连接 - 使用一个需要路由的命令来检测集群模式
+            # 测试基本连接
+            client.ping()
+            print("✓ 单机模式连接成功")
+
+            # 尝试执行 Stream 命令来验证是否真的支持
+            # 因为集群模式下某些命令可能会失败
             try:
-                # 尝试获取一个 key 的信息，这个命令会触发集群路由
-                client.execute_command('COMMAND', 'DOCS', 'GET')
+                # 使用一个临时的 key 测试
+                test_key = "__redis_connection_test__"
+                client.set(test_key, "1", ex=10)  # 10秒过期
+                client.get(test_key)
+                client.delete(test_key)
+                
+                # 如果能执行这些命令，说明是单机模式
                 self._is_cluster = False
                 print(f"✓ Redis 连接成功 (单机模式): {self.config.host}:{self.config.port}")
                 return client
+                
             except redis.exceptions.ConnectionError as e:
                 error_msg = str(e)
                 # 检查是否是集群错误
                 if 'CLUSTERDOWN' in error_msg or 'MOVED' in error_msg or 'ASK' in error_msg:
-                    print("⚠ 检测到 Redis 集群模式，切换到集群客户端")
+                    print(f"⚠ 检测到集群错误: {error_msg[:100]}")
+                    print("切换到集群模式...")
                     # 关闭单机客户端
                     try:
                         client.close()
                     except:
                         pass
+                    # 清空连接池
+                    self._pool = None
                     return self._create_cluster_client()
                 else:
                     raise
@@ -140,7 +155,8 @@ class RedisPool:
             error_msg = str(e)
             # 检查是否是集群错误
             if 'CLUSTERDOWN' in error_msg or 'MOVED' in error_msg or 'ASK' in error_msg:
-                print("⚠ 检测到 Redis 集群模式，切换到集群客户端")
+                print(f"⚠ 检测到集群错误: {error_msg[:100]}")
+                print("切换到集群模式...")
                 return self._create_cluster_client()
             else:
                 print(f"✗ Redis 连接失败: {e}")
@@ -156,20 +172,50 @@ class RedisPool:
         Returns:
             redis.Redis: Redis客户端实例
         """
+        # 尝试导入集群客户端（支持新旧版本）
+        RedisCluster = None
         try:
-            from redis.cluster import RedisCluster
+            # 新版本 redis-py (>=4.0.0) 内置集群支持
+            from redis.cluster import RedisCluster as NewRedisCluster
+            RedisCluster = NewRedisCluster
+            print("使用 redis-py 内置集群支持 (版本 >= 4.0)")
+        except ImportError:
+            try:
+                # 旧版本使用 redis-py-cluster 包
+                from rediscluster import RedisCluster as OldRedisCluster
+                RedisCluster = OldRedisCluster
+                print("使用 redis-py-cluster 包")
+            except ImportError:
+                print("✗ 未找到 Redis 集群支持")
+                print("  解决方案:")
+                print("  1. 升级 redis 包: pip install --upgrade redis")
+                print("  2. 或安装 redis-py-cluster: pip install redis-py-cluster")
+                raise Exception(
+                    "Redis cluster support not found. "
+                    "Please install: pip install --upgrade redis"
+                )
 
-            # 使用集群模式
-            client = RedisCluster(
-                host=self.config.host,
-                port=self.config.port,
-                password=self.config.password,
-                decode_responses=self.config.decode_responses,
-                socket_timeout=self.config.socket_timeout,
-                socket_connect_timeout=self.config.socket_connect_timeout,
-                skip_full_coverage_check=True,
-                max_connections=self.config.max_connections
-            )
+        try:
+            # 构建集群客户端参数
+            cluster_kwargs = {
+                'host': self.config.host,
+                'port': self.config.port,
+                'decode_responses': self.config.decode_responses,
+                'socket_timeout': self.config.socket_timeout,
+                'socket_connect_timeout': self.config.socket_connect_timeout,
+            }
+
+            # 添加密码（如果有）
+            if self.config.password:
+                cluster_kwargs['password'] = self.config.password
+
+            # 新版本 redis-py 的参数
+            if hasattr(RedisCluster, '__module__') and 'redis.cluster' in RedisCluster.__module__:
+                cluster_kwargs['skip_full_coverage_check'] = True
+                cluster_kwargs['max_connections'] = self.config.max_connections
+
+            # 创建集群客户端
+            client = RedisCluster(**cluster_kwargs)
 
             # 测试连接
             client.ping()
@@ -177,9 +223,6 @@ class RedisPool:
             print(f"✓ Redis 连接成功 (集群模式): {self.config.host}:{self.config.port}")
             return client
 
-        except ImportError:
-            print("✗ 未安装 redis-py-cluster，请执行: pip install redis-py-cluster")
-            raise Exception("Redis cluster support requires redis-py-cluster package")
         except Exception as e:
             print(f"✗ Redis 集群模式连接失败: {e}")
             raise
