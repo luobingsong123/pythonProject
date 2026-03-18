@@ -14,6 +14,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config.settings import settings
+from config.config_loader import load_config, update_global_settings
 from backtest.engine import BacktestEngine
 from examples.consumer_demo import StockConsumer
 
@@ -207,12 +208,29 @@ def main():
         help='不使用选股策略，使用默认选股数量'
     )
     
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='config/config.ini',
+        help='配置文件路径（默认: config/config.ini）'
+    )
+    
     args = parser.parse_args()
+    
+    # 从配置文件加载配置
+    try:
+        print("正在加载配置文件...")
+        update_global_settings(args.config)
+        print(f"✓ 配置文件加载成功: {args.config}")
+    except Exception as e:
+        print(f"⚠ 配置文件加载失败，使用默认配置: {e}")
+        print("  请检查配置文件路径和格式是否正确")
     
     # 打印配置信息
     print("\n" + "="*60)
     print("Redis Service 配置信息")
     print("="*60)
+    print(f"配置文件: {args.config}")
     print(f"运行模式: {args.mode}")
     print(f"日期: {args.date}")
     print(f"使用策略: {'否' if args.no_strategy else '是'}")
