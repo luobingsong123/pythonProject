@@ -45,7 +45,7 @@ class StockQueryService:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """
-        获取日线数据
+        获取日线数据（仅股票，排除指数）
         
         Args:
             date: 日期，格式YYYYMMDD
@@ -59,6 +59,9 @@ class StockQueryService:
         
         with self._get_connection() as conn:
             with conn.cursor() as cursor:
+                # 股票代码范围（排除指数）
+                # 沪市股票: 600000-689999
+                # 深市股票: 000001-002999, 300001-301999
                 if market:
                     sql = """
                         SELECT 
@@ -69,6 +72,13 @@ class StockQueryService:
                         FROM stock_daily_data d
                         JOIN stock_basic_info b ON d.market = b.market AND d.code_int = b.code_int
                         WHERE date = %s AND d.market = %s
+                          AND (
+                            (d.market = 'sh' AND d.code_int BETWEEN 600000 AND 689999)
+                            OR (d.market = 'sz' AND (
+                                d.code_int BETWEEN 1 AND 2999
+                                OR d.code_int BETWEEN 300001 AND 301999
+                            ))
+                          )
                         ORDER BY amount DESC
                         LIMIT %s
                     """
@@ -83,6 +93,13 @@ class StockQueryService:
                         FROM stock_daily_data d
                         JOIN stock_basic_info b ON d.market = b.market AND d.code_int = b.code_int
                         WHERE d.date = %s
+                          AND (
+                            (d.market = 'sh' AND d.code_int BETWEEN 600000 AND 689999)
+                            OR (d.market = 'sz' AND (
+                                d.code_int BETWEEN 1 AND 2999
+                                OR d.code_int BETWEEN 300001 AND 301999
+                            ))
+                          )
                         ORDER BY d.amount DESC
                         LIMIT %s
                     """
