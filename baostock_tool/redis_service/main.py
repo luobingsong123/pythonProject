@@ -16,12 +16,13 @@ from config.config_loader import update_global_settings
 from backtest.engine import BacktestEngine
 
 
-def start_backtest_service(date: str, use_strategy: bool = True):
+def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = True):
     """
     启动回测服务
-    
+
     Args:
-        date: 回测日期
+        start_date: 回测开始日期
+        end_date: 回测结束日期
         use_strategy: 是否使用选股策略
     """
     print("\n" + "="*60)
@@ -31,8 +32,8 @@ def start_backtest_service(date: str, use_strategy: bool = True):
     # 创建回测配置
     from config.settings import BacktestConfig
     config = BacktestConfig(
-        start_date=date,
-        end_date=date,
+        start_date=start_date,
+        end_date=end_date,
         strategy_id=settings.backtest.strategy_id,
         use_strategy=use_strategy,
         default_selection_count=settings.backtest.default_selection_count
@@ -78,7 +79,8 @@ def main():
         return
 
     # 从配置文件获取参数
-    date = settings.backtest.end_date
+    start_date = settings.backtest.start_date
+    end_date = settings.backtest.end_date
     use_strategy = settings.backtest.use_strategy
 
     # 打印配置信息
@@ -86,7 +88,7 @@ def main():
     print("Redis Service 配置信息")
     print("="*60)
     print(f"配置文件: {config_path}")
-    print(f"日期: {date}")
+    print(f"回测日期: {start_date} ~ {end_date}")
     print(f"使用策略: {'是' if use_strategy else '否'}")
     if use_strategy:
         print(f"策略ID: {settings.backtest.strategy_id}")
@@ -101,7 +103,7 @@ def main():
     print("="*60)
 
     # 启动回测服务
-    start_backtest_service(date, use_strategy=use_strategy)
+    start_backtest_service(start_date, end_date, use_strategy=use_strategy)
 
 
 if __name__ == "__main__":
