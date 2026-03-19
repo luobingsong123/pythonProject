@@ -282,8 +282,9 @@ class TickDataPublisher:
             if unix_ts:
                 timestamp_ms = int(unix_ts)
                 # 从时间戳推导时间字符串
-                dt = datetime.fromtimestamp(timestamp_ms / 1000)
-                time_str = dt.strftime("%H:%M:%S")
+                # dt = datetime.fromtimestamp(timestamp_ms / 1000)
+                # time_str = dt.strftime("%H:%M:%S")
+                time_str = unix_ts
             else:
                 # 兼容没有 UNIX 字段的情况，使用 TradingTime
                 trading_time = tick.get("TradingTime")
