@@ -316,7 +316,8 @@ class StockQueryService:
                 # 检查表中的 Market 值（调试用）
                 check_market_sql = f"SELECT DISTINCT Market FROM {table_name} LIMIT 10"
                 cursor.execute(check_market_sql)
-                market_values = [row[0] for row in cursor.fetchall()]
+                market_rows = cursor.fetchall()
+                market_values = [row['Market'] if 'Market' in row else row for row in market_rows]
                 print(f"    [DEBUG] 表中Market值: {market_values}")
 
                 # 转换市场代码（保持与数据库一致）
