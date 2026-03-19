@@ -7,8 +7,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from database.queries import StockQueryService
 from market.publisher import SnapshotPublisher
-from models.snapshot import SnapshotData, MarketQuote
-from models.parser import SnapshotParser
+from models.snapshot import SnapshotData, MarketQuote, SnapshotParser
 from utils.serializer import TimestampUtil
 
 logger = logging.getLogger(__name__)
