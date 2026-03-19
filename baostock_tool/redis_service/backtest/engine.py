@@ -76,7 +76,7 @@ class BacktestEngine:
         self.selector = StockSelector(self.query_service, strategy)
         self.selection_writer = SelectionWriter()
         self.selection_reader = SelectionReader()
-        self.tick_publisher = TickDataPublisher()
+        self.tick_publisher = TickDataPublisher(use_pipeline=self.config.use_pipeline)
         
         print("Backtest engine initialized successfully")
     
@@ -182,24 +182,21 @@ class BacktestEngine:
         
         print(f"Publishing tick data for {len(selection.stocks)} stocks:")
         
-        # 为每只股票推送Tick数据
+        # 构建股票列表用于批量发布
+        stocks = []
+        exchange_map = {"SSE": "sh", "SZSE": "sz"}
+        
         for stock in selection.stocks:
-            exchange_map = {"SSE": "sh", "SZSE": "sz"}
             market = exchange_map.get(stock.exchange, "sh")
             code = int(stock.symbol)
-            
-            print(f"  Publishing {stock.exchange}:{stock.symbol}...")
-            
-            # 获取并推送Tick数据
-            count = self.tick_publisher.publish_tick_data(
-                date=date,
-                market=market,
-                code=code,
-                exchange=stock.exchange,
-                symbol=stock.symbol
-            )
-            
-            print(f"    Published {count} tick messages")
+            stocks.append((market, stock.exchange, code, stock.symbol))
+        
+        # 批量发布Tick数据
+        results = self.tick_publisher.publish_tick_data_batch(date, stocks)
+        
+        # 输出结果
+        for symbol, count in results.items():
+            print(f"  {symbol}: Published {count} tick messages")
     
     def _generate_trade_dates(self) -> List[str]:
         """

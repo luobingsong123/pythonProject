@@ -141,6 +141,7 @@ class ConfigLoader:
         
         # 处理布尔值
         use_strategy = self.config.getboolean(section, 'use_strategy', fallback=True)
+        use_pipeline = self.config.getboolean(section, 'use_pipeline', fallback=True)
         
         return BacktestConfig(
             start_date=self.config.get(section, 'start_date', fallback='20241001'),
@@ -150,7 +151,8 @@ class ConfigLoader:
             default_selection_count=self.config.getint(section, 'default_selection_count', fallback=10),
             strategy_params=strategy_params,
             trade_dates=trade_dates,
-            preload_days=self.config.getint(section, 'preload_days', fallback=30)
+            preload_days=self.config.getint(section, 'preload_days', fallback=30),
+            use_pipeline=use_pipeline
         )
 
     def _load_logging_config(self) -> LoggingConfig:

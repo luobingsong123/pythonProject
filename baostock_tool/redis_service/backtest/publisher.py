@@ -3,11 +3,12 @@ Tick数据发布器
 """
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from database.queries import StockQueryService
 from market.publisher import SnapshotPublisher
 from models.snapshot import SnapshotData, MarketQuote
+from models.parser import SnapshotParser
 from utils.serializer import TimestampUtil
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,8 @@ class TickDataPublisher:
     def __init__(
         self,
         query_service: Optional[StockQueryService] = None,
-        snapshot_publisher: Optional[SnapshotPublisher] = None
+        snapshot_publisher: Optional[SnapshotPublisher] = None,
+        use_pipeline: bool = True
     ):
         """
         初始化发布器
@@ -27,9 +29,14 @@ class TickDataPublisher:
         Args:
             query_service: 查询服务
             snapshot_publisher: 行情发布器
+            use_pipeline: 是否使用Redis Pipeline批量推送，默认True
         """
         self.query_service = query_service or StockQueryService()
         self.publisher = snapshot_publisher or SnapshotPublisher()
+        self.use_pipeline = use_pipeline
+        
+        # 空数据缓存：{date: empty_tick_list}
+        self._empty_tick_cache: Dict[str, List[Dict[str, Any]]] = {}
     
     def publish_tick_data(
         self,
@@ -76,6 +83,97 @@ class TickDataPublisher:
         
         logger.debug(f"推送Tick数据完成: {exchange}:{symbol}, 数量={count}")
         return count
+    
+    def publish_tick_data_batch(
+        self,
+        date: str,
+        stocks: List[Tuple[str, str, int, str]]
+    ) -> Dict[str, int]:
+        """
+        批量发布多只股票的Tick数据（推荐使用）
+        
+        Args:
+            date: 日期 YYYYMMDD
+            stocks: 股票列表 [(market, exchange, code, symbol), ...]
+                   market: sh/sz, exchange: SSE/SZSE, code: int, symbol: 6位代码
+            
+        Returns:
+            Dict[str, int]: {symbol: 发布数量}
+        """
+        if not stocks:
+            return {}
+        
+        logger.info(f"批量发布Tick数据: 日期={date}, 股票数={len(stocks)}, pipeline={self.use_pipeline}")
+        
+        # 1. 批量查询数据库（一次查询所有股票）
+        stock_params = [(market, code) for market, exchange, code, symbol in stocks]
+        tick_data_map = self.query_service.get_tick_data_batch(date, stock_params)
+        
+        results: Dict[str, int] = {}
+        
+        if self.use_pipeline:
+            # 使用 Pipeline 批量推送
+            pipe = self.publisher._client.pipeline()
+            
+            for market, exchange, code, symbol in stocks:
+                code_str = f"{code:06d}"
+                tick_data = tick_data_map.get(code_str)
+                
+                if not tick_data:
+                    tick_data = self._get_cached_empty_tick_data(date)
+                    logger.debug(f"未查到Tick数据，使用缓存空数据: {market}:{code}")
+                
+                count = 0
+                for tick in tick_data:
+                    snapshot = self._convert_tick_to_snapshot(tick, date, exchange, symbol)
+                    if snapshot:
+                        channel = snapshot.get_channel()
+                        message = SnapshotParser.to_json(snapshot)
+                        pipe.publish(channel, message)
+                        count += 1
+                
+                results[symbol] = count
+            
+            # 一次性执行所有 publish
+            pipe.execute()
+            logger.info(f"Pipeline批量推送完成: 总股票数={len(results)}")
+        else:
+            # 逐条推送（兼容模式）
+            for market, exchange, code, symbol in stocks:
+                code_str = f"{code:06d}"
+                tick_data = tick_data_map.get(code_str)
+                
+                if not tick_data:
+                    tick_data = self._get_cached_empty_tick_data(date)
+                    logger.debug(f"未查到Tick数据，使用缓存空数据: {market}:{code}")
+                
+                count = 0
+                for tick in tick_data:
+                    snapshot = self._convert_tick_to_snapshot(tick, date, exchange, symbol)
+                    if snapshot:
+                        self.publisher.publish(snapshot)
+                        count += 1
+                
+                results[symbol] = count
+            
+            logger.info(f"逐条推送完成: 总股票数={len(results)}")
+        
+        return results
+    
+    def _get_cached_empty_tick_data(self, date: str) -> List[Dict[str, Any]]:
+        """
+        获取缓存的空Tick数据
+        
+        Args:
+            date: 日期 YYYYMMDD
+            
+        Returns:
+            List[Dict]: 空tick数据列表
+        """
+        if date not in self._empty_tick_cache:
+            self._empty_tick_cache[date] = self._generate_empty_tick_data(date)
+            logger.debug(f"生成并缓存空Tick数据: {date}")
+        return self._empty_tick_cache[date]
     
     def _generate_empty_tick_data(self, date: str) -> List[Dict[str, Any]]:
         """
