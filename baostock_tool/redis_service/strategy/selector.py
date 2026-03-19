@@ -12,6 +12,8 @@ from strategy.ma_volume_strategy import MAVolumeStrategy
 from models.stock_selection import (
     StockInfo, BasicInfo, MinuteVolume, TechnicalIndicators, FundamentalData
 )
+from models.stock_selection import SelectionMessage
+from utils.serializer import TimestampUtil
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +81,8 @@ class StockSelector:
             List[StockInfo]: 选股结果
         """
         # 获取日线数据
-        logger.debug(f"查询日K线数据: date={date}, market={market}, limit=500")
-        daily_data = self.query_service.get_daily_data(date, market, limit=500)
+        logger.debug(f"查询日K线数据: date={date}, market={market}, limit=9999")
+        daily_data = self.query_service.get_daily_data(date, market, limit=9999)
         
         if not daily_data:
             logger.warning(f"未查到日K线数据: date={date}, market={market}")
@@ -125,8 +127,7 @@ class StockSelector:
             stocks: 股票列表
             strategy_params: 策略参数
         """
-        from models.stock_selection import SelectionMessage
-        from utils.serializer import TimestampUtil
+
         
         batch_id = f"SELECT_{date}_001"
         

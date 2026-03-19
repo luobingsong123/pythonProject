@@ -137,7 +137,7 @@ class StockConsumer:
     def consume_market_data(
         self,
         date: str,
-        max_snapshots: int = 1000,
+        max_snapshots: int = 999999999,
         timeout: int = 60
     ) -> int:
         """
