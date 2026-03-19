@@ -16,7 +16,8 @@ from .settings import (
     DatabaseConfig,
     MarketConfig,
     SelectionConfig,
-    BacktestConfig
+    BacktestConfig,
+    LoggingConfig
 )
 
 
@@ -57,7 +58,8 @@ class ConfigLoader:
             database=self._load_database_config(),
             market=self._load_market_config(),
             selection=self._load_selection_config(),
-            backtest=self._load_backtest_config()
+            backtest=self._load_backtest_config(),
+            logging=self._load_logging_config()
         )
     
     def _load_redis_config(self) -> RedisConfig:
@@ -150,7 +152,24 @@ class ConfigLoader:
             trade_dates=trade_dates,
             preload_days=self.config.getint(section, 'preload_days', fallback=30)
         )
-    
+
+    def _load_logging_config(self) -> LoggingConfig:
+        """加载日志配置"""
+        section = 'logging'
+
+        # 验证日志级别
+        level = self.config.get(section, 'level', fallback='INFO').upper()
+        if level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
+            level = 'INFO'
+
+        return LoggingConfig(
+            level=level,
+            log_file=self.config.get(section, 'log_file', fallback='logs/redis_service.log'),
+            max_bytes=self.config.getint(section, 'max_bytes', fallback=10) * 1024 * 1024,  # MB转字节
+            backup_count=self.config.getint(section, 'backup_count', fallback=5),
+            console_output=self.config.getboolean(section, 'console_output', fallback=True)
+        )
+
     def get_custom_config(self, section: str) -> Dict[str, Any]:
         """
         获取自定义配置段

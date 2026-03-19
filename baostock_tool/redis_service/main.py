@@ -25,9 +25,12 @@ def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = 
         end_date: 回测结束日期
         use_strategy: 是否使用选股策略
     """
-    print("\n" + "="*60)
-    print("启动回测服务")
-    print("="*60)
+    from utils.log_manager import get_logger
+    logger = get_logger("main")
+    
+    logger.info("="*60)
+    logger.info("启动回测服务")
+    logger.info("="*60)
     
     # 创建回测配置
     from config.settings import BacktestConfig
@@ -53,29 +56,33 @@ def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = 
     }
     
     engine.initialize(db_config)
-    print("✓ 回测引擎初始化成功")
+    logger.info("回测引擎初始化成功")
     
     # 运行回测
     engine.run()
-    print("✓ 回测服务运行完成")
+    logger.info("回测服务运行完成")
     
     # 保持连接不关闭，等待消费者随时消费
-    print("\n回测完成，选股数据已推送到 Redis")
-    print("使用 run_consumer.py 启动消费者消费数据")
+    logger.info("回测完成，选股数据已推送到 Redis")
+    logger.info("使用 run_consumer.py 启动消费者消费数据")
 
 
 def main():
     """主函数"""
+    from utils.log_manager import setup_logging, get_logger
+    
     # 配置文件路径
     config_path = 'config/config.ini'
 
     # 从配置文件加载配置
     try:
-        print("正在加载配置文件...")
         update_global_settings(config_path)
-        print(f"✓ 配置文件加载成功: {config_path}")
+        # 初始化日志系统
+        setup_logging()
+        logger = get_logger("main")
+        logger.info(f"配置文件加载成功: {config_path}")
     except Exception as e:
-        print(f"⚠ 配置文件加载失败: {e}")
+        print(f"配置文件加载失败: {e}")
         return
 
     # 从配置文件获取参数
@@ -84,23 +91,17 @@ def main():
     use_strategy = settings.backtest.use_strategy
 
     # 打印配置信息
-    print("\n" + "="*60)
-    print("Redis Service 配置信息")
-    print("="*60)
-    print(f"配置文件: {config_path}")
-    print(f"回测日期: {start_date} ~ {end_date}")
-    print(f"使用策略: {'是' if use_strategy else '否'}")
+    logger.info("="*60)
+    logger.info("Redis Service 配置信息")
+    logger.info("="*60)
+    logger.info(f"配置文件: {config_path}")
+    logger.info(f"回测日期: {start_date} ~ {end_date}")
+    logger.info(f"使用策略: {'是' if use_strategy else '否'}")
     if use_strategy:
-        print(f"策略ID: {settings.backtest.strategy_id}")
-    print("\nRedis配置:")
-    print(f"  Host: {settings.redis.host}")
-    print(f"  Port: {settings.redis.port}")
-    print(f"  DB: {settings.redis.db}")
-    print("\n数据库配置:")
-    print(f"  Host: {settings.database.host}")
-    print(f"  Port: {settings.database.port}")
-    print(f"  Database: {settings.database.database}")
-    print("="*60)
+        logger.info(f"策略ID: {settings.backtest.strategy_id}")
+    logger.info(f"Redis: {settings.redis.host}:{settings.redis.port} DB={settings.redis.db}")
+    logger.info(f"数据库: {settings.database.host}:{settings.database.port}/{settings.database.database}")
+    logger.info("="*60)
 
     # 启动回测服务
     start_backtest_service(start_date, end_date, use_strategy=use_strategy)

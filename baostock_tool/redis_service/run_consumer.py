@@ -26,6 +26,7 @@ class ConsumerRunner:
     
     def __init__(self):
         self.consumer = None
+        self.logger = None
     
     def setup_signal_handlers(self):
         """设置信号处理器"""
@@ -34,7 +35,8 @@ class ConsumerRunner:
     
     def _signal_handler(self, signum, frame):
         """信号处理器"""
-        print(f"\n\n收到信号 {signum}，正在停止消费者...")
+        if self.logger:
+            self.logger.info(f"收到信号 {signum}，正在停止消费者...")
         self.stop()
         sys.exit(0)
     
@@ -46,25 +48,24 @@ class ConsumerRunner:
             date: 消费日期
             max_snapshots: 最大消费快照数
         """
-        print("\n" + "="*60)
-        print("独立消费者启动")
-        print("="*60)
-        print(f"日期: {date}")
-        print(f"最大快照数: {max_snapshots}")
-        print("\nRedis配置:")
-        print(f"  Host: {settings.redis.host}")
-        print(f"  Port: {settings.redis.port}")
-        print(f"  DB: {settings.redis.db}")
-        print("="*60)
+        from utils.log_manager import get_logger
+        self.logger = get_logger("consumer_runner")
+        
+        self.logger.info("="*60)
+        self.logger.info("独立消费者启动")
+        self.logger.info("="*60)
+        self.logger.info(f"日期: {date}, 最大快照数: {max_snapshots}")
+        self.logger.info(f"Redis: {settings.redis.host}:{settings.redis.port} DB={settings.redis.db}")
+        self.logger.info("="*60)
         
         self.consumer = StockConsumer()
         self.setup_signal_handlers()
         
         try:
             self.consumer.run(date)
-            print("\n✓ 消费者运行完成")
+            self.logger.info("消费者运行完成")
         except Exception as e:
-            print(f"\n✗ 消费者运行失败: {e}")
+            self.logger.error(f"消费者运行失败: {e}")
             raise
         finally:
             self.stop()
@@ -112,12 +113,15 @@ def main():
     args = parser.parse_args()
     
     # 从配置文件加载配置
+    from utils.log_manager import setup_logging, get_logger
+    
     try:
-        print("正在加载配置文件...")
         update_global_settings(args.config)
-        print(f"✓ 配置文件加载成功: {args.config}")
+        setup_logging()
+        logger = get_logger("main")
+        logger.info(f"配置文件加载成功: {args.config}")
     except Exception as e:
-        print(f"⚠ 配置文件加载失败，使用默认配置: {e}")
+        print(f"配置文件加载失败: {e}")
     
     # 创建并运行消费者
     runner = ConsumerRunner()
@@ -125,9 +129,9 @@ def main():
     try:
         runner.run(args.date, args.max_snapshots)
     except KeyboardInterrupt:
-        print("\n\n✓ 用户中断")
+        print("\n用户中断")
     except Exception as e:
-        print(f"\n✗ 消费者运行失败: {e}")
+        print(f"消费者运行失败: {e}")
         sys.exit(1)
 
 

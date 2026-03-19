@@ -3,10 +3,13 @@
 """
 
 import math
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from database.connection import DatabasePool, get_db_connection
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StockQueryService:
@@ -283,6 +286,10 @@ class StockQueryService:
         
         with self._get_connection() as conn:
             with conn.cursor() as cursor:
+                # 转换市场代码（数据库使用 SSE/SZSE）
+                market_code = "SSE" if market == "sh" else "SZSE"
+                symbol = f"{code:06d}"  # 只有6位代码，不加前缀
+                
                 sql = f"""
                     SELECT 
                         Symbol, TradingDate, TradingTime,
@@ -301,43 +308,98 @@ class StockQueryService:
                     ORDER BY TradingTime
                 """
                 
-                # 转换市场代码
-                market_code = "SH" if market == "sh" else "SZ"
-                symbol = f"{market_code}{code:06d}"
-
-                # 验证表是否存在
-                check_table_sql = f"SHOW TABLES LIKE '{table_name}'"
-                cursor.execute(check_table_sql)
-                table_exists = cursor.fetchone()
-                if not table_exists:
-                    print(f"    [DEBUG] 表不存在: {table_name}")
-                    return []
-
-                # 检查表中的 Market 值（调试用）
-                check_market_sql = f"SELECT DISTINCT Market FROM {table_name} LIMIT 10"
-                cursor.execute(check_market_sql)
-                market_rows = cursor.fetchall()
-                market_values = [row['Market'] if 'Market' in row else row for row in market_rows]
-                print(f"    [DEBUG] 表中Market值: {market_values}")
-
-                # 转换市场代码（保持与数据库一致）
-                # 根据你的手动查询，数据库使用的是 SZSE 而不是 SZ
-                market_code = "SSE" if market == "sh" else "SZSE"
-                symbol = f"{code:06d}"  # 只有6位代码，不加前缀
-
                 try:
-                    print(f"    [DEBUG] 查询Tick SQL: {sql}")
-                    print(f"    [DEBUG] 查询参数: Symbol={symbol}, Market={market_code}")
                     cursor.execute(sql, (symbol, market_code))
                     result = cursor.fetchall()
-                    print(f"    [DEBUG] 查询结果数量: {len(result)}")
+                    logger.debug(f"查询Tick数据: {table_name}, Symbol={symbol}, Market={market_code}, 结果数量={len(result)}")
                     return result
                 except Exception as e:
                     # 表可能不存在
-                    print(f"    [DEBUG] 查询Tick数据异常: {type(e).__name__}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.warning(f"查询Tick数据失败: {table_name}, 错误: {type(e).__name__}: {e}")
                     return []
+    
+    def get_tick_data_batch(
+        self,
+        date: str,
+        stocks: List[Tuple[str, int]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        批量获取多只股票的Tick数据(3秒级)
+        
+        Args:
+            date: 日期 YYYYMMDD
+            stocks: 股票列表 [(market, code), ...]
+            
+        Returns:
+            Dict[str, List[Dict]]: {symbol: tick_data_list}
+        """
+        if not stocks:
+            return {}
+        
+        table_name = f"level2_3s_{date}"
+        
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                # 构建查询条件
+                # 按市场分组
+                sh_codes = [f"{code:06d}" for market, code in stocks if market == "sh"]
+                sz_codes = [f"{code:06d}" for market, code in stocks if market == "sz"]
+                
+                if not sh_codes and not sz_codes:
+                    return {}
+                
+                # 构建 OR 条件
+                conditions = []
+                params = []
+                
+                if sh_codes:
+                    placeholders = ",".join(["%s"] * len(sh_codes))
+                    conditions.append(f"(Market = 'SSE' AND Symbol IN ({placeholders}))")
+                    params.extend(sh_codes)
+                
+                if sz_codes:
+                    placeholders = ",".join(["%s"] * len(sz_codes))
+                    conditions.append(f"(Market = 'SZSE' AND Symbol IN ({placeholders}))")
+                    params.extend(sz_codes)
+                
+                where_clause = " OR ".join(conditions)
+                
+                sql = f"""
+                    SELECT 
+                        Symbol, TradingDate, TradingTime,
+                        PreClosePrice, OpenPrice, HighPrice, LowPrice, LastPrice,
+                        TotalVolume, TradeVolume, TotalAmount, TradeAmount,
+                        PERatio1, PERatio2,
+                        TotalSellOrderVolume, WtAvgSellPrice, SellLevelNo,
+                        SellPrice05, SellPrice04, SellPrice03, SellPrice02, SellPrice01,
+                        SellVolume05, SellVolume04, SellVolume03, SellVolume02, SellVolume01,
+                        TotalBuyOrderVolume, WtAvgBuyPrice, BuyLevelNo,
+                        BuyPrice01, BuyPrice02, BuyPrice03, BuyPrice04, BuyPrice05,
+                        BuyVolume01, BuyVolume02, BuyVolume03, BuyVolume04, BuyVolume05,
+                        UNIX, Market
+                    FROM {table_name}
+                    WHERE {where_clause}
+                    ORDER BY Symbol, TradingTime
+                """
+                
+                try:
+                    cursor.execute(sql, params)
+                    rows = cursor.fetchall()
+                    
+                    # 按股票代码分组
+                    results = {}
+                    for row in rows:
+                        symbol = row.get('Symbol', '')
+                        if symbol not in results:
+                            results[symbol] = []
+                        results[symbol].append(row)
+                    
+                    logger.info(f"批量查询Tick数据: {table_name}, 股票数={len(stocks)}, 总记录数={len(rows)}")
+                    return results
+                    
+                except Exception as e:
+                    logger.warning(f"批量查询Tick数据失败: {table_name}, 错误: {type(e).__name__}: {e}")
+                    return {}
     
     def get_stock_basic_info(
         self,

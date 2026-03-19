@@ -4,6 +4,27 @@ Redis配置管理模块
 
 from pydantic import BaseModel, Field
 from typing import Optional, List
+import logging
+
+
+class LoggingConfig(BaseModel):
+    """日志配置"""
+    level: str = "INFO"
+    log_file: str = "logs/redis_service.log"
+    max_bytes: int = 10 * 1024 * 1024  # 10MB
+    backup_count: int = 5
+    console_output: bool = True
+
+    def get_log_level(self) -> int:
+        """获取日志级别"""
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL
+        }
+        return level_map.get(self.level.upper(), logging.INFO)
 
 
 class RedisConfig(BaseModel):
@@ -77,6 +98,7 @@ class Settings(BaseModel):
     market: MarketConfig = MarketConfig()
     selection: SelectionConfig = SelectionConfig()
     backtest: BacktestConfig = BacktestConfig()
+    logging: LoggingConfig = LoggingConfig()
 
 
 # 全局配置实例

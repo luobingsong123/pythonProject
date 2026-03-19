@@ -8,9 +8,12 @@
 """
 
 import math
+import logging
 from typing import List, Dict, Any, Optional
 from strategy.base import BaseStrategy, StrategyResult
 from database.queries import StockQueryService
+
+logger = logging.getLogger(__name__)
 
 
 class MAVolumeStrategy(BaseStrategy):
@@ -268,7 +271,7 @@ class MAVolumeStrategy(BaseStrategy):
                 return True
                 
         except Exception as e:
-            print(f"Error checking MA slope for {market}:{code}: {e}")
+            logger.warning(f"检查均线斜率失败 {market}:{code}: {e}")
             return False
     
     def _calculate_ma_series(self, prices: List[float], period: int) -> List[float]:
@@ -393,7 +396,7 @@ class MAVolumeStrategy(BaseStrategy):
                 }
                 
         except Exception as e:
-            print(f"Error getting volume stats for {market}:{code}: {e}")
+            logger.warning(f"获取成交量统计失败 {market}:{code}: {e}")
             return {"max": 0, "min": 1, "ratio": float('inf')}
     
     def _calculate_score(self, stock_data: Dict[str, Any]) -> float:

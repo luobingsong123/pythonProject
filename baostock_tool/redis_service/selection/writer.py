@@ -2,11 +2,14 @@
 股池数据写入模块
 """
 
+import logging
 import redis
 from typing import Optional, List
 from core.base_service import BaseRedisService
 from models.stock_selection import SelectionMessage, SelectionParser, StockInfo
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class SelectionWriter(BaseRedisService):
@@ -68,15 +71,7 @@ class SelectionWriter(BaseRedisService):
         stream_key = SelectionParser.build_stream_key(date)
         fields = SelectionParser.to_stream_fields(message)
         
-        # 调试打印：推送到Redis的数据
-        print(f"\n[DEBUG] 推送选股数据到 Redis:")
-        print(f"  Stream Key: {stream_key}")
-        print(f"  批次ID: {batch_id}")
-        print(f"  策略ID: {strategy_id}")
-        print(f"  选股数量: {len(stocks)}")
-        print(f"  股票列表:")
-        for i, stock in enumerate(stocks, 1):
-            print(f"    [{i}] {stock.exchange}:{stock.symbol} {stock.name}")
+        logger.debug(f"推送选股数据到 Redis: Stream={stream_key}, 批次={batch_id}, 策略={strategy_id}, 数量={len(stocks)}")
         
         return self._client.xadd(
             stream_key,

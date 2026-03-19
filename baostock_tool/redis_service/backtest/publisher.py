@@ -2,12 +2,15 @@
 Tick数据发布器
 """
 
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from database.queries import StockQueryService
 from market.publisher import SnapshotPublisher
 from models.snapshot import SnapshotData, MarketQuote
 from utils.serializer import TimestampUtil
+
+logger = logging.getLogger(__name__)
 
 
 class TickDataPublisher:
@@ -54,13 +57,12 @@ class TickDataPublisher:
         
         if not tick_data:
             # 查不到数据时，推送一天全-1的数据
-            print(f"    [DEBUG] 未查到Tick数据，生成空数据推送")
+            logger.debug(f"未查到Tick数据，生成空数据推送: {market}:{code}")
             tick_data = self._generate_empty_tick_data(date)
         else:
-            print(f"    [DEBUG] 查到 {len(tick_data)} 条Tick数据")
+            logger.debug(f"查到 {len(tick_data)} 条Tick数据: {market}:{code}")
         
         count = 0
-        sample_printed = False
         
         # 发布每条Tick数据
         for tick in tick_data:
@@ -69,21 +71,10 @@ class TickDataPublisher:
             )
             
             if snapshot:
-                # 调试打印：前3条数据样本
-                if not sample_printed and count < 3:
-                    print(f"    [DEBUG] 推送Tick样本 #{count+1}:")
-                    print(f"      时间: {snapshot.data.timestamp}")
-                    print(f"      最新价: {snapshot.data.last_price}")
-                    print(f"      成交量: {snapshot.data.volume}")
-                    print(f"      成交额: {snapshot.data.amount}")
-                    print(f"      买一: {snapshot.data.bid_price[0]} x {snapshot.data.bid_volume[0]}")
-                    print(f"      卖一: {snapshot.data.ask_price[0]} x {snapshot.data.ask_volume[0]}")
-                    if count == 2:
-                        sample_printed = True
-                
                 self.publisher.publish(snapshot)
                 count += 1
         
+        logger.debug(f"推送Tick数据完成: {exchange}:{symbol}, 数量={count}")
         return count
     
     def _generate_empty_tick_data(self, date: str) -> List[Dict[str, Any]]:
@@ -254,7 +245,7 @@ class TickDataPublisher:
             return snapshot
             
         except Exception as e:
-            print(f"Error converting tick to snapshot: {e}")
+            logger.warning(f"Tick转换失败: {e}")
             return None
     
     def close(self):
