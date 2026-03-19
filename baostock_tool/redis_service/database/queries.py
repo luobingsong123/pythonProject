@@ -304,7 +304,26 @@ class StockQueryService:
                 # 转换市场代码
                 market_code = "SH" if market == "sh" else "SZ"
                 symbol = f"{market_code}{code:06d}"
-                
+
+                # 验证表是否存在
+                check_table_sql = f"SHOW TABLES LIKE '{table_name}'"
+                cursor.execute(check_table_sql)
+                table_exists = cursor.fetchone()
+                if not table_exists:
+                    print(f"    [DEBUG] 表不存在: {table_name}")
+                    return []
+
+                # 检查表中的 Market 值（调试用）
+                check_market_sql = f"SELECT DISTINCT Market FROM {table_name} LIMIT 10"
+                cursor.execute(check_market_sql)
+                market_values = [row[0] for row in cursor.fetchall()]
+                print(f"    [DEBUG] 表中Market值: {market_values}")
+
+                # 转换市场代码（保持与数据库一致）
+                # 根据你的手动查询，数据库使用的是 SZSE 而不是 SZ
+                market_code = "SSE" if market == "sh" else "SZSE"
+                symbol = f"{code:06d}"  # 只有6位代码，不加前缀
+
                 try:
                     print(f"    [DEBUG] 查询Tick SQL: {sql}")
                     print(f"    [DEBUG] 查询参数: Symbol={symbol}, Market={market_code}")
@@ -315,6 +334,8 @@ class StockQueryService:
                 except Exception as e:
                     # 表可能不存在
                     print(f"    [DEBUG] 查询Tick数据异常: {type(e).__name__}: {e}")
+                    import traceback
+                    traceback.print_exc()
                     return []
     
     def get_stock_basic_info(
