@@ -277,15 +277,23 @@ class TickDataPublisher:
             SnapshotData: 行情快照
         """
         try:
-            # 解析时间
-            trading_time = tick.get("TradingTime")
-            if isinstance(trading_time, str):
-                dt = TimestampUtil.parse_timestamp(trading_time)
+            # 使用 UNIX 字段作为时间戳（毫秒）
+            unix_ts = tick.get("UNIX")
+            if unix_ts:
+                timestamp_ms = int(unix_ts)
+                # 从时间戳推导时间字符串
+                dt = datetime.fromtimestamp(timestamp_ms / 1000)
                 time_str = dt.strftime("%H:%M:%S")
-                timestamp_ms = int(dt.timestamp() * 1000)
             else:
-                time_str = "09:30:00"
-                timestamp_ms = TimestampUtil.current_timestamp()
+                # 兼容没有 UNIX 字段的情况，使用 TradingTime
+                trading_time = tick.get("TradingTime")
+                if isinstance(trading_time, str):
+                    dt = TimestampUtil.parse_timestamp(trading_time)
+                    time_str = dt.strftime("%H:%M:%S")
+                    timestamp_ms = int(dt.timestamp() * 1000)
+                else:
+                    time_str = "09:30:00"
+                    timestamp_ms = TimestampUtil.current_timestamp()
             
             # 构建买卖盘
             bid_prices = [
