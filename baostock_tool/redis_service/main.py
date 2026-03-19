@@ -111,14 +111,22 @@ def main():
         print(f"✓ 配置文件加载成功: {args.config}")
     except Exception as e:
         print(f"⚠ 配置文件加载失败，使用默认配置: {e}")
-    
+
+    # 确定是否使用策略（命令行参数优先于配置文件）
+    use_strategy = not args.no_strategy
+    if use_strategy and not settings.backtest.use_strategy:
+        # 如果命令行没有指定，使用配置文件的值
+        use_strategy = settings.backtest.use_strategy
+
     # 打印配置信息
     print("\n" + "="*60)
     print("Redis Service 配置信息")
     print("="*60)
     print(f"配置文件: {args.config}")
     print(f"日期: {args.date}")
-    print(f"使用策略: {'否' if args.no_strategy else '是'}")
+    print(f"使用策略: {'是' if use_strategy else '否'}")
+    if use_strategy:
+        print(f"策略ID: {settings.backtest.strategy_id}")
     print("\nRedis配置:")
     print(f"  Host: {settings.redis.host}")
     print(f"  Port: {settings.redis.port}")
@@ -130,7 +138,7 @@ def main():
     print("="*60)
     
     # 启动回测服务
-    start_backtest_service(args.date, use_strategy=not args.no_strategy)
+    start_backtest_service(args.date, use_strategy=use_strategy)
 
 
 if __name__ == "__main__":
