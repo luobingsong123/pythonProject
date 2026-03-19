@@ -559,7 +559,7 @@ class StockQueryService:
             end_date: 结束日期 YYYYMMDD
             
         Returns:
-            List[str]: 交易日列表
+            List[str]: 交易日列表 YYYYMMDD格式
         """
         with self._get_connection() as conn:
             with conn.cursor() as cursor:
@@ -572,6 +572,13 @@ class StockQueryService:
                 """
                 cursor.execute(sql, (start_date, end_date))
                 rows = cursor.fetchall()
-                dates = [row['calendar_date'] for row in rows]
+                # 将 datetime.date 转换为 YYYYMMDD 字符串
+                dates = []
+                for row in rows:
+                    cal_date = row['calendar_date']
+                    if hasattr(cal_date, 'strftime'):
+                        dates.append(cal_date.strftime('%Y%m%d'))
+                    else:
+                        dates.append(str(cal_date).replace('-', ''))
                 logger.info(f"获取到 {len(dates)} 个交易日: {start_date} ~ {end_date}")
                 return dates
