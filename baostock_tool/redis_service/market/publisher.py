@@ -7,7 +7,8 @@ from typing import Optional
 from core.base_service import BaseRedisService
 from models.snapshot import SnapshotData, SnapshotParser
 from config.settings import settings
-
+from models.snapshot import MarketQuote
+from utils.serializer import TimestampUtil
 
 class SnapshotPublisher(BaseRedisService):
     """行情快照发布器"""
@@ -84,8 +85,6 @@ class SnapshotPublisher(BaseRedisService):
         Returns:
             int: 接收消息的订阅者数量
         """
-        from models.snapshot import MarketQuote
-        from utils.serializer import TimestampUtil
         
         snapshot = SnapshotData(
             type="snapshot",

@@ -545,3 +545,33 @@ class StockQueryService:
                 cursor.execute(sql, (market, code, formatted_start, formatted_end))
                 row = cursor.fetchone()
                 return float(row["max_high"]) if row and row["max_high"] else 0.0
+    
+    def get_trading_dates(
+        self,
+        start_date: str,
+        end_date: str
+    ) -> List[str]:
+        """
+        获取交易日历
+        
+        Args:
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            
+        Returns:
+            List[str]: 交易日列表
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                sql = """
+                    SELECT calendar_date 
+                    FROM trade_calendar 
+                    WHERE calendar_date BETWEEN %s AND %s
+                      AND is_trading_day = 1
+                    ORDER BY calendar_date
+                """
+                cursor.execute(sql, (start_date, end_date))
+                rows = cursor.fetchall()
+                dates = [row['calendar_date'] for row in rows]
+                logger.info(f"获取到 {len(dates)} 个交易日: {start_date} ~ {end_date}")
+                return dates

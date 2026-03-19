@@ -5,7 +5,7 @@
 import time
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-
+from database.connection import close_db_pool
 from config.settings import settings, BacktestConfig
 from database.connection import DatabasePool, init_db_pool
 from database.queries import StockQueryService
@@ -200,7 +200,7 @@ class BacktestEngine:
     
     def _generate_trade_dates(self) -> List[str]:
         """
-        生成交易日列表
+        生成交易日列表（从数据库查询交易日历）
         
         Returns:
             List[str]: 交易日列表
@@ -208,21 +208,29 @@ class BacktestEngine:
         if self.config.trade_dates:
             return self.config.trade_dates
         
-        # 简化实现：生成日期范围内的所有日期
-        # 实际应该从数据库查询交易日历
-        start = datetime.strptime(self.config.start_date, "%Y%m%d")
-        end = datetime.strptime(self.config.end_date, "%Y%m%d")
-        
-        dates = []
-        current = start
-        
-        while current <= end:
-            # 跳过周末
-            if current.weekday() < 5:  # 0-4是周一到周五
-                dates.append(current.strftime("%Y%m%d"))
-            current += timedelta(days=1)
-        
-        return dates
+        # 从数据库查询交易日历
+        try:
+            dates = self.query_service.get_trading_dates(
+                self.config.start_date,
+                self.config.end_date
+            )
+            print(f"获取到 {len(dates)} 个交易日")
+            return dates
+        except Exception as e:
+            print(f"查询交易日历失败: {e}，使用简化逻辑（跳过周末）")
+            # 回退到简化实现：跳过周末
+            start = datetime.strptime(self.config.start_date, "%Y%m%d")
+            end = datetime.strptime(self.config.end_date, "%Y%m%d")
+            
+            dates = []
+            current = start
+            
+            while current <= end:
+                if current.weekday() < 5:
+                    dates.append(current.strftime("%Y%m%d"))
+                current += timedelta(days=1)
+            
+            return dates
     
     def close(self):
         """关闭引擎"""
@@ -237,7 +245,7 @@ class BacktestEngine:
         if self.tick_publisher:
             self.tick_publisher.close()
         
-        from database.connection import close_db_pool
+
         close_db_pool()
         
         print("Backtest engine closed")
