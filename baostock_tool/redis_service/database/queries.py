@@ -306,11 +306,15 @@ class StockQueryService:
                 symbol = f"{market_code}{code:06d}"
                 
                 try:
+                    print(f"    [DEBUG] 查询Tick SQL: {sql}")
+                    print(f"    [DEBUG] 查询参数: Symbol={symbol}, Market={market_code}")
                     cursor.execute(sql, (symbol, market_code))
-                    return cursor.fetchall()
+                    result = cursor.fetchall()
+                    print(f"    [DEBUG] 查询结果数量: {len(result)}")
+                    return result
                 except Exception as e:
                     # 表可能不存在
-                    print(f"Error querying tick data: {e}")
+                    print(f"    [DEBUG] 查询Tick数据异常: {type(e).__name__}: {e}")
                     return []
     
     def get_stock_basic_info(
