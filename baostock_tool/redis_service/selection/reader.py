@@ -111,13 +111,19 @@ class SelectionReader(BaseRedisService):
             return messages
         else:
             # List 模式：使用 lrange 获取最新的 count 条
-            items = self._client.lrange(key, -count, -1)
+            list_len = self._client.llen(key)
+            
+            if list_len == 0:
+                return []
+            
+            # 计算实际读取的起始索引
+            start_index = max(0, list_len - count)
+            items = self._client.lrange(key, start_index, -1)
             
             messages = []
-            list_len = self._client.llen(key)
             for i, item in enumerate(items):
-                # 计算实际索引（从后往前）
-                actual_index = list_len - count + i
+                # 计算实际索引
+                actual_index = start_index + i
                 msg_id = f"list:{actual_index}"
                 messages.append((msg_id, {"data": item}))
             
@@ -171,11 +177,15 @@ class SelectionReader(BaseRedisService):
                 if isinstance(msg, tuple):
                     msg_id, msg_data = msg
                     selection = SelectionParser.parse_message(msg_data)
+                elif isinstance(msg, str):
+                    selection = SelectionParser.parse_message(msg)
                 else:
                     selection = SelectionParser.parse_message(msg)
                 result.append(selection)
             except Exception as e:
-                print(f"Failed to parse message: {e}")
+                print(f"Failed to parse message {msg}: {e}")
+                import traceback
+                traceback.print_exc()
         return result
     
     def get_length(self, date: str) -> int:

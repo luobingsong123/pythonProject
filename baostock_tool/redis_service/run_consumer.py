@@ -93,11 +93,14 @@ class FileConsumer:
             bool: 是否成功消费到数据
         """
         start_time = time.time()
+        check_count = 0
         
         while time.time() - start_time < wait_timeout:
+            check_count += 1
             messages = self.selection_reader.read_latest(date, count=1)
             
             if messages:
+                print(f"第 {check_count} 次检查: 找到 {len(messages)} 条消息")
                 selections = self.selection_reader.parse_messages(messages)
                 
                 if selections:
@@ -113,17 +116,27 @@ class FileConsumer:
                     ]
                     
                     self.stats["selection_count"] = len(self.selected_stocks)
+                    print(f"✓ 成功消费选股数据: {len(self.selected_stocks)} 只股票")
+                    print(f"  批次ID: {selection.batch_id}")
+                    print(f"  策略ID: {selection.strategy_id}")
                     return True
+                else:
+                    print(f"第 {check_count} 次检查: 解析消息失败")
+            else:
+                if check_count % 5 == 0:
+                    print(f"第 {check_count} 次检查: 未找到数据，继续等待...")
             
             time.sleep(1)
         
+        print(f"✗ 等待选股数据超时 ({wait_timeout}秒)，共检查 {check_count} 次")
         return False
     
     def consume_market_data(
         self,
         date: str,
         max_snapshots: int = 999999999,
-        timeout: int = 60
+        timeout: int = 300,
+        idle_timeout: int = 60
     ) -> int:
         """
         消费行情数据
@@ -131,12 +144,14 @@ class FileConsumer:
         Args:
             date: 日期
             max_snapshots: 最大消费快照数
-            timeout: 超时时间（秒）
+            timeout: 总超时时间（秒），默认5分钟
+            idle_timeout: 空闲超时时间（秒），默认60秒（收到最后一条快照后等待多久没有新数据就退出）
             
         Returns:
             int: 消费的快照数量
         """
         if not self.selected_stocks:
+            print("✗ 没有选股数据，无法消费行情")
             return 0
         
         # 构建订阅模式
@@ -145,8 +160,12 @@ class FileConsumer:
             for stock in self.selected_stocks
         ]
         
+        print(f"开始订阅行情快照: {len(channels)} 个股票通道")
+        print(f"  {', '.join(channels[:5])}{'...' if len(channels) > 5 else ''}")
+        
         count = 0
         start_time = time.time()
+        last_snapshot_time = time.time()
         
         try:
             pattern = "market:snapshot:*"
@@ -159,6 +178,7 @@ class FileConsumer:
                     for s in self.selected_stocks
                 ):
                     count += 1
+                    last_snapshot_time = time.time()
                     
                     # 写入文件
                     self._write_snapshot(snapshot)
@@ -168,28 +188,43 @@ class FileConsumer:
                     self.stats["stock_stats"][stock_key] = \
                         self.stats["stock_stats"].get(stock_key, 0) + 1
                     
+                    # 每100条打印一次进度
+                    if count % 100 == 0:
+                        print(f"已接收 {count} 条快照...")
+                    
+                    # 检查是否达到最大数量
                     if count >= max_snapshots:
+                        print(f"✓ 已达到最大快照数: {count}")
                         break
                     
+                    # 检查总超时
                     if time.time() - start_time > timeout:
+                        print(f"✓ 总超时达到 {timeout} 秒，退出消费")
+                        break
+                    
+                    # 检查空闲超时（超过 idle_timeout 没有新数据）
+                    if time.time() - last_snapshot_time > idle_timeout:
+                        print(f"✓ 空闲超时 ({idle_timeout}秒内无新数据)，退出消费")
                         break
                     
         except KeyboardInterrupt:
-            pass
-        except Exception:
-            pass
+            print("\n用户中断消费")
+        except Exception as e:
+            print(f"✗ 消费行情数据异常: {e}")
+            import traceback
+            traceback.print_exc()
         
         self.stats["snapshot_count"] = count
         return count
     
-    def run(self, date: str, max_snapshots: int = 999999999, timeout: int = 60):
+    def run(self, date: str, max_snapshots: int = 999999999, timeout: int = 300):
         """
         运行消费者
         
         Args:
             date: 日期
             max_snapshots: 最大消费快照数
-            timeout: 超时时间
+            timeout: 总超时时间（秒），默认5分钟
         """
         self.stats["start_time"] = time.time()
         
