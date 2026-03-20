@@ -8,7 +8,7 @@
   python run_consumer.py --date 20241008
   python run_consumer.py --date 20241008 --output data.csv
 """
-
+import datetime
 import sys
 import os
 import argparse
@@ -19,7 +19,7 @@ from typing import List, Dict, Any
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
+from utils.log_manager import get_logger
 from config.settings import settings
 from config.config_loader import load_config, update_global_settings
 from selection.reader import SelectionReader
@@ -54,7 +54,7 @@ class FileConsumer:
         """初始化CSV文件"""
         if self.output_file:
             self.csv_file = open(self.output_file, 'w', newline='', encoding='utf-8')
-            self.csv_writer = csv.writer(self.csv_file)
+            self.csv_writer = csv.writer(self.csv_file, delimiter='|')
             # 写入表头
             self.csv_writer.writerow([
                 'timestamp', 'exchange', 'symbol', 'last_price', 
@@ -73,10 +73,10 @@ class FileConsumer:
                 data.last_price,
                 data.volume,
                 data.amount,
-                '|'.join(str(p) for p in data.bid_price),
-                '|'.join(str(v) for v in data.bid_volume),
-                '|'.join(str(p) for p in data.ask_price),
-                '|'.join(str(v) for v in data.ask_volume),
+                ','.join(str(p) for p in data.bid_price),
+                ','.join(str(v) for v in data.bid_volume),
+                ','.join(str(p) for p in data.ask_price),
+                ','.join(str(v) for v in data.ask_volume),
                 data.date,
                 data.timestamp
             ])
@@ -94,7 +94,7 @@ class FileConsumer:
         """
         start_time = time.time()
         check_count = 0
-        
+
         while time.time() - start_time < wait_timeout:
             check_count += 1
             messages = self.selection_reader.read_latest(date, count=1)
@@ -125,7 +125,7 @@ class FileConsumer:
             else:
                 if check_count % 5 == 0:
                     print(f"第 {check_count} 次检查: 未找到数据，继续等待...")
-            
+
             time.sleep(1)
         
         print(f"✗ 等待选股数据超时 ({wait_timeout}秒)，共检查 {check_count} 次")
@@ -162,11 +162,11 @@ class FileConsumer:
         
         print(f"开始订阅行情快照: {len(channels)} 个股票通道")
         print(f"  {', '.join(channels[:5])}{'...' if len(channels) > 5 else ''}")
-        
+
         count = 0
         start_time = time.time()
         last_snapshot_time = time.time()
-        
+
         try:
             pattern = "market:snapshot:*"
             
@@ -179,7 +179,7 @@ class FileConsumer:
                 ):
                     count += 1
                     last_snapshot_time = time.time()
-                    
+
                     # 写入文件
                     self._write_snapshot(snapshot)
                     
@@ -189,9 +189,9 @@ class FileConsumer:
                         self.stats["stock_stats"].get(stock_key, 0) + 1
                     
                     # 每100条打印一次进度
-                    if count % 100 == 0:
+                    if count % 1000 == 0:
                         print(f"已接收 {count} 条快照...")
-                    
+
                     # 检查是否达到最大数量
                     if count >= max_snapshots:
                         print(f"✓ 已达到最大快照数: {count}")
@@ -201,7 +201,7 @@ class FileConsumer:
                     if time.time() - start_time > timeout:
                         print(f"✓ 总超时达到 {timeout} 秒，退出消费")
                         break
-                    
+
                     # 检查空闲超时（超过 idle_timeout 没有新数据）
                     if time.time() - last_snapshot_time > idle_timeout:
                         print(f"✓ 空闲超时 ({idle_timeout}秒内无新数据)，退出消费")
@@ -288,7 +288,7 @@ class ConsumerRunner:
             max_snapshots: 最大消费快照数
             output_file: 输出文件路径
         """
-        from utils.log_manager import get_logger
+        output_file = output_file if output_file else f"consumer_csvlog/consumer_{date}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
         self.logger = get_logger("consumer_runner")
         
         self.logger.info("="*60)
@@ -353,14 +353,14 @@ def main():
     parser.add_argument(
         '--date',
         type=str,
-        default='20241008',
+        default='20241111',
         help='日期，格式YYYYMMDD'
     )
     
     parser.add_argument(
         '--max-snapshots',
         type=int,
-        default=100,
+        default=9999999999,
         help='最大消费行情快照数'
     )
     
