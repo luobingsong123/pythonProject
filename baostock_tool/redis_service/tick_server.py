@@ -315,35 +315,40 @@ class TickServer:
                     return
 
                 # 逐日推送Tick数据
-                all_results = {}
+                all_results = {}  # 按日期分组的统计 {date: {symbol: count}}
                 for date in request.date_list:
                     self.logger.info(f"开始推送Tick数据: 日期={date}, 股票数={len(stocks)}")
                     results = self.publisher.publish_tick_data_batch(date, stocks)
 
-                    # 合并结果
-                    for symbol, count in results.items():
-                        if symbol in all_results:
-                            all_results[symbol] += count
-                        else:
-                            all_results[symbol] = count
+                    # 按日期保存结果
+                    all_results[date] = results
 
-                # 构建统计响应（只返回每个证券代码和各自的数量）
+                # 构建统计响应（按日期分组）
                 response = {
                     "success": True,
                     "start_date": request.start_date,
                     "end_date": request.end_date,
                     "stats": [
                         {
-                            "code": symbol,
-                            "count": count
+                            "date": date,
+                            "items": [
+                                {
+                                    "code": symbol,
+                                    "count": count
+                                }
+                                for symbol, count in date_results.items()
+                            ]
                         }
-                        for symbol, count in all_results.items()
+                        for date, date_results in all_results.items()
                     ]
                 }
 
                 # 发送响应
                 self._send_response(client_socket, response)
-                total_count = sum(all_results.values())
+                total_count = sum(
+                    sum(date_results.values())
+                    for date_results in all_results.values()
+                )
                 self.logger.info(f"推送完成: 日期范围={request.start_date}~{request.end_date}, 总股票={len(stocks)}, 总推送={total_count}")
 
             except Exception as e:

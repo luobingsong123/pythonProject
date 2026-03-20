@@ -9,6 +9,8 @@ import os
 import socket
 import json
 import csv
+import threading
+import time
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -19,8 +21,9 @@ from utils.log_manager import setup_logging
 from config.settings import settings
 from config.config_loader import update_global_settings
 from selection.reader import SelectionReader
+from market.subscriber import SnapshotSubscriber
 from utils.log_manager import get_logger
-
+import traceback
 
 class TickClient:
     """Tick数据客户端"""
@@ -37,6 +40,12 @@ class TickClient:
         self.port = port
         self.logger = get_logger("tick_client")
         self.selection_reader = SelectionReader()
+        self.snapshot_subscriber = SnapshotSubscriber()
+        self.receiving = False
+        self.tick_file = None
+        self.tick_writer = None
+        self.received_count = 0
+        self.receive_thread: threading.Thread = None
 
     def read_selection_stocks(self, date: str) -> List[Dict[str, Any]]:
         """
@@ -76,7 +85,8 @@ class TickClient:
         self,
         start_date: str,
         end_date: str,
-        stocks: List[Dict[str, Any]]
+        stocks: List[Dict[str, Any]],
+        tick_file_path: str
     ) -> Dict[str, Any]:
         """
         向服务器订阅Tick数据
@@ -85,10 +95,14 @@ class TickClient:
             start_date: 开始日期
             end_date: 结束日期
             stocks: 股票列表
+            tick_file_path: tick数据文件路径
 
         Returns:
             Dict: 服务器响应
         """
+        # 先启动接收线程
+        self._start_receiving(tick_file_path, stocks)
+
         # 构建订阅请求
         stock_codes = [s["symbol"] for s in stocks]
 
@@ -125,14 +139,113 @@ class TickClient:
             response = json.loads(response_data.decode("utf-8"))
             self.logger.info(f"收到服务器响应: {response}")
 
+            # 等待一段时间接收数据
+            self.logger.info("等待接收tick数据...")
+            time.sleep(10)
+
+            # 停止接收
+            self._stop_receiving()
+
             return response
 
         except Exception as e:
             self.logger.error(f"订阅失败: {e}")
+            self._stop_receiving()
             return {
                 "success": False,
                 "error": f"连接服务器失败: {e}"
             }
+
+    def _start_receiving(self, tick_file_path: str, stocks: List[Dict[str, Any]]):
+        """
+        启动接收线程
+
+        Args:
+            tick_file_path: tick数据文件路径
+            stocks: 股票列表
+        """
+        self.receiving = True
+        self.received_count = 0
+
+        # 打开文件
+        os.makedirs(os.path.dirname(tick_file_path), exist_ok=True)
+        self.tick_file = open(tick_file_path, 'w', encoding='utf-8', newline='')
+        self.tick_writer = csv.writer(self.tick_file, delimiter='|')
+        # 写入表头
+        self.tick_writer.writerow([
+            'timestamp', 'exchange', 'symbol', 'last_price',
+            'volume', 'amount', 'bid_price', 'bid_volume',
+            'ask_price', 'ask_volume', 'date', 'time'
+        ])
+
+        # 构建订阅的股票集合
+        stock_set = {
+            f"{s['exchange']}:{s['symbol']}"
+            for s in stocks
+        }
+
+        # 启动接收线程
+        self.receive_thread = threading.Thread(
+            target=self._receive_loop,
+            args=(stock_set,),
+            daemon=True
+        )
+        self.receive_thread.start()
+        self.logger.info(f"开始接收tick数据: {tick_file_path}")
+
+    def _receive_loop(self, stock_set: set):
+        """
+        接收循环
+
+        Args:
+            stock_set: 订阅的股票集合
+        """
+        try:
+            pattern = "market:snapshot:*"
+            for snapshot in self.snapshot_subscriber.subscribe(pattern):
+                if not self.receiving:
+                    break
+
+                # 检查是否是订阅的股票
+                key = f"{snapshot.exchange}:{snapshot.symbol}"
+                if key in stock_set:
+                    # 写入文件
+                    data = snapshot.data
+                    self.tick_writer.writerow([
+                        snapshot.timestamp,
+                        snapshot.exchange,
+                        snapshot.symbol,
+                        data.last_price,
+                        data.volume,
+                        data.amount,
+                        ','.join(str(p) for p in data.bid_price),
+                        ','.join(str(v) for v in data.bid_volume),
+                        ','.join(str(p) for p in data.ask_price),
+                        ','.join(str(v) for v in data.ask_volume),
+                        data.date,
+                        data.timestamp
+                    ])
+                    self.received_count += 1
+
+                    # 每1000条打印一次
+                    if self.received_count % 1000 == 0:
+                        self.logger.info(f"已接收 {self.received_count} 条tick数据")
+
+        except Exception as e:
+            self.logger.error(f"接收tick数据异常: {e}")
+        finally:
+            self.receiving = False
+
+    def _stop_receiving(self):
+        """停止接收"""
+        self.receiving = False
+        if self.receive_thread and self.receive_thread.is_alive():
+            self.receive_thread.join(timeout=5)
+        if self.tick_file:
+            self.tick_file.close()
+            self.tick_file = None
+            self.tick_writer = None
+        self.logger.info(f"停止接收，共接收 {self.received_count} 条tick数据")
 
     def save_result(self, response: Dict[str, Any], output_file: str):
         """
@@ -146,12 +259,14 @@ class TickClient:
             with open(output_file, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f, delimiter='|')
                 # 写入表头
-                writer.writerow(['code', 'count'])
+                writer.writerow(['date', 'code', 'count'])
 
-                # 写入数据
+                # 写入数据（按日期分组）
                 if response.get("success") and "stats" in response:
-                    for stat in response["stats"]:
-                        writer.writerow([stat["code"], stat["count"]])
+                    for date_stat in response["stats"]:
+                        date = date_stat["date"]
+                        for item in date_stat["items"]:
+                            writer.writerow([date, item["code"], item["count"]])
 
             self.logger.info(f"订阅结果已保存: {output_file}")
 
@@ -160,7 +275,9 @@ class TickClient:
 
     def close(self):
         """关闭客户端"""
+        self._stop_receiving()
         self.selection_reader.close()
+        self.snapshot_subscriber.close()
 
 
 def main():
@@ -268,7 +385,16 @@ def main():
             return
 
         # 订阅Tick数据
-        response = client.subscribe(args.start_date, args.end_date, stocks)
+        # tick数据文件路径：与统计文件同目录，后缀为tick.csv
+        if args.output:
+            base_dir = os.path.dirname(args.output)
+            base_name = os.path.splitext(os.path.basename(args.output))[0]
+            tick_file = os.path.join(base_dir, f"{base_name}_tick.csv") if base_dir else f"tick_client_result/{base_name}_tick.csv"
+        else:
+            base_name = f"{selection_date}_{args.start_date}_{args.end_date}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            tick_file = f"tick_client_result/{base_name}_tick.csv"
+
+        response = client.subscribe(args.start_date, args.end_date, stocks, tick_file)
 
         # 保存结果
         if response.get("success"):
@@ -292,11 +418,20 @@ def main():
             logger.info(f"日期范围: {args.start_date} ~ {args.end_date}")
             logger.info(f"股票数量: {len(stocks)}")
             if "stats" in response:
-                total_count = sum(s["count"] for s in response["stats"])
+                total_count = 0
+                for date_stat in response["stats"]:
+                    date_count = sum(item["count"] for item in date_stat["items"])
+                    total_count += date_count
+                    logger.info(f"日期 {date_stat['date']}: {date_count} 条")
                 logger.info(f"总推送数量: {total_count}")
-                for stat in response["stats"]:
-                    logger.info(f"  {stat['code']}: {stat['count']}")
-            logger.info(f"结果文件: {output_file}")
+                logger.info("详细信息:")
+                for date_stat in response["stats"]:
+                    logger.info(f"  {date_stat['date']}:")
+                    for item in date_stat["items"]:
+                        logger.info(f"    {item['code']}: {item['count']}")
+            logger.info(f"统计结果文件: {output_file}")
+            logger.info(f"Tick数据文件: {tick_file}")
+            logger.info(f"接收tick数据: {client.received_count} 条")
             logger.info("="*60)
         else:
             logger.error(f"订阅失败: {response.get('error')}")
@@ -304,7 +439,6 @@ def main():
 
     except Exception as e:
         logger.error(f"客户端运行失败: {e}")
-        import traceback
         traceback.print_exc()
         sys.exit(1)
     finally:
