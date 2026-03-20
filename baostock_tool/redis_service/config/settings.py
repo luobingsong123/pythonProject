@@ -63,12 +63,16 @@ class MarketConfig(BaseModel):
 
 class SelectionConfig(BaseModel):
     """股池相关配置"""
-    # Stream Key前缀
-    stream_key_prefix: str = "selection:stream"
-    # Stream最大长度
-    stream_maxlen: int = 10000
-    # 消费者组名称
+    # 数据存储结构: "stream" (Redis 5.0+) 或 "list" (Redis 3.0+)
+    data_structure: str = "stream"
+    # Key前缀 (Stream 或 List 共用)
+    key_prefix: str = "selection:stream"
+    # 最大长度 (Stream 或 List 最大保存消息数)
+    maxlen: int = 10000
+    # 消费者组名称 (仅 Stream 模式有效)
     consumer_group: str = "selection_consumer"
+    # 消费者名称 (仅 Stream 模式有效)
+    consumer_name: str = "consumer_01"
 
 
 class BacktestConfig(BaseModel):

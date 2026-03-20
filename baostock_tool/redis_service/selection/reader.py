@@ -6,19 +6,30 @@ import redis
 from typing import Optional, List, Dict, Any
 from core.base_service import BaseRedisService
 from models.stock_selection import SelectionMessage, SelectionParser
+from config.settings import settings
 
 
 class SelectionReader(BaseRedisService):
     """股池数据读取器"""
     
-    def __init__(self, redis_client: Optional[redis.Redis] = None):
+    def __init__(
+        self, 
+        redis_client: Optional[redis.Redis] = None,
+        data_structure: Optional[str] = None
+    ):
         """
         初始化读取器
         
         Args:
             redis_client: Redis客户端
+            data_structure: 数据结构类型 "stream" 或 "list"，默认使用配置中的值
         """
         super().__init__(redis_client)
+        self._data_structure = (data_structure or settings.selection.data_structure).lower()
+        self._key_prefix = settings.selection.key_prefix
+        
+        if self._data_structure not in ['stream', 'list']:
+            self._data_structure = 'stream'
     
     def read_selection(
         self,
@@ -32,17 +43,24 @@ class SelectionReader(BaseRedisService):
         Args:
             date: 日期，格式YYYYMMDD
             count: 每次读取的最大消息数
-            last_id: 起始消息ID，"0-0"表示从最早的消息开始
+            last_id: 起始消息ID，"0-0"表示从最早的消息开始 (仅Stream模式有效)
             
         Returns:
             List[tuple]: 消息列表，每个元素为(msg_id, message_dict)
         """
-        stream_key = SelectionParser.build_stream_key(date)
+        key = SelectionParser.build_key(date, self._key_prefix)
         
+        if self._data_structure == 'stream':
+            return self._read_from_stream(key, count, last_id)
+        else:
+            return self._read_from_list(key, count)
+    
+    def _read_from_stream(self, key: str, count: int, last_id: str) -> List[tuple]:
+        """从 Stream 读取数据"""
         result = self._client.xread(
-            {stream_key: last_id},
+            {key: last_id},
             count=count,
-            block=None  # 阻塞模式，None表示不使用阻塞
+            block=None
         )
         
         if not result:
@@ -52,6 +70,20 @@ class SelectionReader(BaseRedisService):
         for stream_name, stream_messages in result:
             for msg in stream_messages:
                 messages.append(msg)
+        
+        return messages
+    
+    def _read_from_list(self, key: str, count: int) -> List[tuple]:
+        """从 List 读取数据（从头开始）"""
+        # 使用 lrange 获取前 count 条
+        items = self._client.lrange(key, 0, count - 1)
+        
+        messages = []
+        for i, item in enumerate(items):
+            # List 模式使用索引作为 ID
+            msg_id = f"list:{i}"
+            # item 已经是字符串 (decode_responses=True)
+            messages.append((msg_id, {"data": item}))
         
         return messages
     
@@ -66,17 +98,30 @@ class SelectionReader(BaseRedisService):
         Returns:
             List[tuple]: 消息列表
         """
-        stream_key = SelectionParser.build_stream_key(date)
+        key = SelectionParser.build_key(date, self._key_prefix)
         
-        # 使用XRANGE从最新往回读
-        messages = self._client.xrevrange(
-            stream_key,
-            "+",  # 从最新开始
-            "-",  # 到最早结束
-            count=count
-        )
-        
-        return messages
+        if self._data_structure == 'stream':
+            # 使用XRANGE从最新往回读
+            messages = self._client.xrevrange(
+                key,
+                "+",  # 从最新开始
+                "-",  # 到最早结束
+                count=count
+            )
+            return messages
+        else:
+            # List 模式：使用 lrange 获取最新的 count 条
+            items = self._client.lrange(key, -count, -1)
+            
+            messages = []
+            list_len = self._client.llen(key)
+            for i, item in enumerate(items):
+                # 计算实际索引（从后往前）
+                actual_index = list_len - count + i
+                msg_id = f"list:{actual_index}"
+                messages.append((msg_id, {"data": item}))
+            
+            return messages
     
     def read_from_beginning(
         self,
@@ -93,16 +138,18 @@ class SelectionReader(BaseRedisService):
         Returns:
             List[tuple]: 消息列表
         """
-        stream_key = SelectionParser.build_stream_key(date)
+        key = SelectionParser.build_key(date, self._key_prefix)
         
-        messages = self._client.xrange(
-            stream_key,
-            "-",  # 从最早开始
-            "+",  # 到最新结束
-            count=count
-        )
-        
-        return messages
+        if self._data_structure == 'stream':
+            messages = self._client.xrange(
+                key,
+                "-",  # 从最早开始
+                "+",  # 到最新结束
+                count=count
+            )
+            return messages
+        else:
+            return self._read_from_list(key, count)
     
     def parse_messages(
         self,
@@ -118,17 +165,22 @@ class SelectionReader(BaseRedisService):
             List[SelectionMessage]: 解析后的选股消息列表
         """
         result = []
-        for msg_id, msg_data in messages:
+        for msg in messages:
             try:
-                selection = SelectionParser.parse_message((msg_id, msg_data))
+                # msg 可能是 (msg_id, msg_data) 或直接是字符串
+                if isinstance(msg, tuple):
+                    msg_id, msg_data = msg
+                    selection = SelectionParser.parse_message(msg_data)
+                else:
+                    selection = SelectionParser.parse_message(msg)
                 result.append(selection)
             except Exception as e:
-                print(f"Failed to parse message {msg_id}: {e}")
+                print(f"Failed to parse message: {e}")
         return result
     
-    def get_stream_length(self, date: str) -> int:
+    def get_length(self, date: str) -> int:
         """
-        获取Stream长度
+        获取数据长度
         
         Args:
             date: 日期
@@ -136,8 +188,12 @@ class SelectionReader(BaseRedisService):
         Returns:
             int: 消息数量
         """
-        stream_key = SelectionParser.build_stream_key(date)
-        return self._client.xlen(stream_key)
+        key = SelectionParser.build_key(date, self._key_prefix)
+        
+        if self._data_structure == 'stream':
+            return self._client.xlen(key)
+        else:
+            return self._client.llen(key)
     
     def create_consumer_group(
         self,
@@ -146,7 +202,7 @@ class SelectionReader(BaseRedisService):
         start_id: str = "0"
     ) -> bool:
         """
-        创建消费者组
+        创建消费者组 (仅 Stream 模式有效)
         
         Args:
             date: 日期
@@ -156,11 +212,15 @@ class SelectionReader(BaseRedisService):
         Returns:
             bool: 是否创建成功
         """
-        stream_key = SelectionParser.build_stream_key(date)
+        if self._data_structure != 'stream':
+            print("Warning: Consumer groups are not supported in List mode")
+            return False
+        
+        key = SelectionParser.build_key(date, self._key_prefix)
         
         try:
             self._client.xgroup_create(
-                stream_key,
+                key,
                 group_name,
                 start_id=start_id,
                 mkstream=True
@@ -181,7 +241,7 @@ class SelectionReader(BaseRedisService):
         block: Optional[int] = None
     ) -> List[tuple]:
         """
-        使用消费者组读取消息
+        使用消费者组读取消息 (仅 Stream 模式有效)
         
         Args:
             date: 日期
@@ -193,7 +253,11 @@ class SelectionReader(BaseRedisService):
         Returns:
             List[tuple]: 消息列表
         """
-        stream_key = SelectionParser.build_stream_key(date)
+        if self._data_structure != 'stream':
+            print("Warning: Consumer groups are not supported in List mode, use read_latest() instead")
+            return self.read_latest(date, count)
+        
+        key = SelectionParser.build_key(date, self._key_prefix)
         
         # 确保消费者组存在
         self.create_consumer_group(date, group_name)
@@ -201,7 +265,7 @@ class SelectionReader(BaseRedisService):
         result = self._client.xreadgroup(
             groupname=group_name,
             consumername=consumer_name,
-            streams={stream_key: ">"},
+            streams={key: ">"},
             count=count,
             block=block
         )
@@ -218,7 +282,7 @@ class SelectionReader(BaseRedisService):
     
     def ack_message(self, date: str, group_name: str, *message_ids: str) -> int:
         """
-        确认消息
+        确认消息 (仅 Stream 模式有效)
         
         Args:
             date: 日期
@@ -228,5 +292,36 @@ class SelectionReader(BaseRedisService):
         Returns:
             int: 确认的消息数量
         """
-        stream_key = SelectionParser.build_stream_key(date)
-        return self._client.xack(stream_key, group_name, *message_ids)
+        if self._data_structure != 'stream':
+            # List 模式无需确认
+            return len(message_ids)
+        
+        key = SelectionParser.build_key(date, self._key_prefix)
+        return self._client.xack(key, group_name, *message_ids)
+    
+    # ============== 兼容旧接口的方法 ==============
+    
+    def get_stream_length(self, date: str) -> int:
+        """
+        获取数据长度 (兼容旧接口)
+        
+        Args:
+            date: 日期
+            
+        Returns:
+            int: 消息数量
+        """
+        return self.get_length(date)
+    
+    def stream_exists(self, date: str) -> bool:
+        """
+        检查是否存在数据 (兼容旧接口)
+        
+        Args:
+            date: 日期
+            
+        Returns:
+            bool: 是否存在
+        """
+        key = SelectionParser.build_key(date, self._key_prefix)
+        return self._client.exists(key) > 0

@@ -100,9 +100,23 @@ class SelectionParser:
     """选股数据解析器"""
     
     @staticmethod
+    def build_key(date: str, prefix: str = "selection:stream") -> str:
+        """
+        构建 Key (Stream 或 List 共用)
+        
+        Args:
+            date: 日期，格式YYYYMMDD
+            prefix: Key 前缀
+            
+        Returns:
+            str: Key，格式为 {prefix}:{date}
+        """
+        return f"{prefix}:{date}"
+    
+    @staticmethod
     def build_stream_key(date: str) -> str:
         """
-        构建Stream Key
+        构建 Stream Key (兼容旧接口)
         
         Args:
             date: 日期，格式YYYYMMDD
@@ -110,15 +124,15 @@ class SelectionParser:
         Returns:
             str: Stream Key
         """
-        return f"selection:stream:{date}"
+        return SelectionParser.build_key(date, "selection:stream")
     
     @staticmethod
     def parse_message(message: dict) -> SelectionMessage:
         """
-        解析Stream消息
+        解析 Stream/List 消息
         
         Args:
-            message: Redis Stream消息字典
+            message: Redis Stream消息字典 或 List元素
             
         Returns:
             SelectionMessage: 选股消息对象
@@ -129,6 +143,9 @@ class SelectionParser:
         if isinstance(message, tuple):
             msg_id, msg_data = message
             data = json.loads(msg_data.get("data", "{}"))
+        elif isinstance(message, str):
+            # List 模式：直接是 JSON 字符串
+            data = json.loads(message)
         else:
             data = json.loads(message.get("data", "{}"))
         
@@ -161,3 +178,16 @@ class SelectionParser:
         return {
             "data": selection.model_dump_json()
         }
+    
+    @staticmethod
+    def to_list_value(selection: SelectionMessage) -> str:
+        """
+        转换为List写入格式
+        
+        Args:
+            selection: 选股消息对象
+            
+        Returns:
+            str: 用于RPUSH的JSON字符串
+        """
+        return selection.model_dump_json()

@@ -118,10 +118,17 @@ class ConfigLoader:
         """加载股池配置"""
         section = 'selection'
         
+        # 处理数据存储结构
+        data_structure = self.config.get(section, 'data_structure', fallback='stream').lower()
+        if data_structure not in ['stream', 'list']:
+            data_structure = 'stream'
+        
         return SelectionConfig(
-            stream_key_prefix=self.config.get(section, 'stream_key_prefix', fallback='selection:stream'),
-            stream_maxlen=self.config.getint(section, 'stream_maxlen', fallback=10000),
-            consumer_group=self.config.get(section, 'consumer_group', fallback='selection_consumer')
+            data_structure=data_structure,
+            key_prefix=self.config.get(section, 'key_prefix', fallback='selection:stream'),
+            maxlen=self.config.getint(section, 'maxlen', fallback=10000),
+            consumer_group=self.config.get(section, 'consumer_group', fallback='selection_consumer'),
+            consumer_name=self.config.get(section, 'consumer_name', fallback='consumer_01')
         )
     
     def _load_backtest_config(self) -> BacktestConfig:

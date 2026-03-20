@@ -100,6 +100,7 @@ def main():
     if use_strategy:
         logger.info(f"策略ID: {settings.backtest.strategy_id}")
     logger.info(f"Redis: {settings.redis.host}:{settings.redis.port} DB={settings.redis.db}")
+    logger.info(f"数据结构: {settings.selection.data_structure.upper()} (Key前缀: {settings.selection.key_prefix})")
     logger.info(f"数据库: {settings.database.host}:{settings.database.port}/{settings.database.database}")
     logger.info("="*60)
 
