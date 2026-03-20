@@ -189,7 +189,7 @@ class FileConsumer:
                         self.stats["stock_stats"].get(stock_key, 0) + 1
                     
                     # 每100条打印一次进度
-                    if count % 1000 == 0:
+                    if count % 10000 == 0:
                         print(f"已接收 {count} 条快照...")
 
                     # 检查是否达到最大数量

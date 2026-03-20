@@ -124,7 +124,10 @@ class SelectionWriter(BaseRedisService):
         
         # 使用 pipeline 保证原子性
         pipe = self._client.pipeline()
+        if self._client.exists(key):
+            pipe.delete(key)  # 删除所有的 key
         pipe.rpush(key, value)
+        # pipe.ltrim(key, -self._maxlen, -1)  # 保留最新的 maxlen 条
         pipe.ltrim(key, -self._maxlen, -1)  # 保留最新的 maxlen 条
         results = pipe.execute()
         
