@@ -14,7 +14,8 @@ from datetime import datetime
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
+import argparse
+from utils.log_manager import setup_logging
 from config.settings import settings
 from config.config_loader import update_global_settings
 from selection.reader import SelectionReader
@@ -164,8 +165,7 @@ class TickClient:
 
 def main():
     """主函数"""
-    import argparse
-    from utils.log_manager import setup_logging
+
 
     parser = argparse.ArgumentParser(
         description='Tick数据客户端',
@@ -177,18 +177,25 @@ def main():
         """
     )
 
+    # 先加载配置文件以获取默认值
+    config_path = 'config/config.ini'
+    try:
+        update_global_settings(config_path)
+    except:
+        pass
+
     parser.add_argument(
         '--start-date',
         type=str,
-        required=True,
-        help='开始日期，格式YYYYMMDD'
+        default=settings.backtest.start_date,
+        help=f'开始日期，格式YYYYMMDD（默认: {settings.backtest.start_date}）'
     )
 
     parser.add_argument(
         '--end-date',
         type=str,
-        required=True,
-        help='结束日期，格式YYYYMMDD'
+        default=settings.backtest.end_date,
+        help=f'结束日期，格式YYYYMMDD（默认: {settings.backtest.end_date}）'
     )
 
     parser.add_argument(

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config.settings import settings
 from config.config_loader import update_global_settings
 from database.queries import StockQueryService
+from database.connection import init_db_pool
 from backtest.publisher import TickDataPublisher
 from utils.log_manager import get_logger
 
@@ -170,8 +171,11 @@ class TickServer:
             db_config: 数据库配置
         """
         try:
-            query_service = StockQueryService()
-            query_service.initialize(**db_config)
+            # 初始化全局数据库连接池
+            db_pool = init_db_pool(db_config)
+            self.logger.info("数据库连接池初始化成功")
+
+            query_service = StockQueryService(db_pool=db_pool)
 
             self.publisher = TickDataPublisher(
                 query_service=query_service,
