@@ -16,16 +16,16 @@ import signal
 import time
 import csv
 from typing import List, Dict, Any
-
+import traceback
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils.log_manager import get_logger
 from config.settings import settings
 from config.config_loader import load_config, update_global_settings
 from selection.reader import SelectionReader
 from market.subscriber import SnapshotSubscriber
 from models.snapshot import SnapshotData
-
+# 从配置文件加载配置
+from utils.log_manager import setup_logging, get_logger
 
 class FileConsumer:
     """文件消费者 - 将数据写入文件"""
@@ -136,7 +136,7 @@ class FileConsumer:
         date: str,
         max_snapshots: int = 999999999,
         timeout: int = 300,
-        idle_timeout: int = 60
+        idle_timeout: int = 30
     ) -> int:
         """
         消费行情数据
@@ -165,7 +165,7 @@ class FileConsumer:
 
         count = 0
         start_time = time.time()
-        last_snapshot_time = time.time()
+        # last_snapshot_time = time.time()
 
         try:
             pattern = "market:snapshot:*"
@@ -178,7 +178,7 @@ class FileConsumer:
                     for s in self.selected_stocks
                 ):
                     count += 1
-                    last_snapshot_time = time.time()
+                    # last_snapshot_time = time.time()
 
                     # 写入文件
                     self._write_snapshot(snapshot)
@@ -203,17 +203,25 @@ class FileConsumer:
                         break
 
                     # 检查空闲超时（超过 idle_timeout 没有新数据）
-                    if time.time() - last_snapshot_time > idle_timeout:
+                    if time.time() - start_time > 2 and count == 0:
                         print(f"✓ 空闲超时 ({idle_timeout}秒内无新数据)，退出消费")
                         break
-                    
+
         except KeyboardInterrupt:
             print("\n用户中断消费")
+        except TimeoutError as e:
+            print(f"Redis读取超时（通常因长时间无数据导致）: {e}")
+            print("已按新逻辑主动退出。")
         except Exception as e:
             print(f"✗ 消费行情数据异常: {e}")
-            import traceback
             traceback.print_exc()
-        
+        finally:
+            # 确保取消订阅
+            if self.snapshot_subscriber._pubsub:
+                self.snapshot_subscriber._pubsub.unsubscribe()
+                self.snapshot_subscriber._pubsub.punsubscribe()
+
+
         self.stats["snapshot_count"] = count
         return count
     
@@ -379,10 +387,7 @@ def main():
     )
     
     args = parser.parse_args()
-    
-    # 从配置文件加载配置
-    from utils.log_manager import setup_logging, get_logger
-    
+
     try:
         update_global_settings(args.config)
         setup_logging()

@@ -245,7 +245,7 @@ class TickClient:
             self.tick_file.close()
             self.tick_file = None
             self.tick_writer = None
-        self.logger.info(f"停止接收，共接收 {self.received_count} 条tick数据")
+        # self.logger.info(f"停止接收，共接收 {self.received_count} 条tick数据")
 
     def save_result(self, response: Dict[str, Any], output_file: str):
         """
@@ -423,15 +423,15 @@ def main():
                     date_count = sum(item["count"] for item in date_stat["items"])
                     total_count += date_count
                     logger.info(f"日期 {date_stat['date']}: {date_count} 条")
-                logger.info(f"总推送数量: {total_count}")
                 logger.info("详细信息:")
                 for date_stat in response["stats"]:
                     logger.info(f"  {date_stat['date']}:")
                     for item in date_stat["items"]:
                         logger.info(f"    {item['code']}: {item['count']}")
+                logger.info(f"总接收数量: {total_count}")
             logger.info(f"统计结果文件: {output_file}")
             logger.info(f"Tick数据文件: {tick_file}")
-            logger.info(f"接收tick数据: {client.received_count} 条")
+            # logger.info(f"接收tick数据: {client.received_count} 条")
             logger.info("="*60)
         else:
             logger.error(f"订阅失败: {response.get('error')}")
