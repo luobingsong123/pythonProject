@@ -57,6 +57,40 @@ class StockSelector:
         else:
             raise ValueError(f"Unknown strategy: {strategy_id}")
     
+    def _get_prev_trade_date(self, date: str) -> str:
+        """
+        获取前一个交易日
+        
+        Args:
+            date: 当前日期 YYYYMMDD
+            
+        Returns:
+            str: 前一个交易日 YYYYMMDD
+        """
+        # 获取交易日列表（往前取足够多的天数）
+        trade_dates = self.query_service.get_trading_dates("20000101", date)
+        if not trade_dates:
+            logger.warning(f"无法获取交易日历，使用日期减1: {date}")
+            from datetime import datetime, timedelta
+            prev = datetime.strptime(date, "%Y%m%d") - timedelta(days=1)
+            return prev.strftime("%Y%m%d")
+        
+        # 找到当前日期在列表中的位置，返回前一个
+        if date in trade_dates:
+            idx = trade_dates.index(date)
+            if idx > 0:
+                return trade_dates[idx - 1]
+        
+        # 如果当前日期不在交易日列表中，返回最后一个小于当前日期的交易日
+        for i in range(len(trade_dates) - 1, -1, -1):
+            if trade_dates[i] < date:
+                return trade_dates[i]
+        
+        # 如果找不到，使用日期减1
+        from datetime import datetime, timedelta
+        prev = datetime.strptime(date, "%Y%m%d") - timedelta(days=1)
+        return prev.strftime("%Y%m%d")
+    
     def select(
         self,
         date: str,
@@ -70,7 +104,7 @@ class StockSelector:
         执行选股
         
         Args:
-            date: 日期
+            date: 选股日期（用于标识选股批次，实际使用T-1数据）
             strategy_id: 策略ID
             count: 选股数量
             market: 市场代码
@@ -80,12 +114,16 @@ class StockSelector:
         Returns:
             List[StockInfo]: 选股结果
         """
-        # 获取日线数据
-        logger.debug(f"查询日K线数据: date={date}, market={market}, limit=9999")
-        daily_data = self.query_service.get_daily_data(date, market, limit=9999)
+        # 获取T-1交易日（实际查询数据的日期）
+        data_date = self._get_prev_trade_date(date)
+        logger.info(f"选股日期: {date}, 使用数据日期(T-1): {data_date}")
+        
+        # 获取日线数据（使用T-1日期）
+        logger.debug(f"查询日K线数据: date={data_date}, market={market}, limit=9999")
+        daily_data = self.query_service.get_daily_data(data_date, market, limit=9999)
         
         if not daily_data:
-            logger.warning(f"未查到日K线数据: date={date}, market={market}")
+            logger.warning(f"未查到日K线数据: date={data_date}, market={market}")
             return []
         
         logger.debug(f"查到 {len(daily_data)} 条日K线数据")
@@ -96,16 +134,16 @@ class StockSelector:
         
         # 如果有策略，使用策略选股
         if self.strategy:
-            strategy_results = self.strategy.select(date, daily_data)
+            strategy_results = self.strategy.select(data_date, daily_data)
             selected = strategy_results[:count]
         else:
             # 无策略时，按成交额取前N
             selected = self._select_top_by_amount(daily_data, count)
         
-        # 转换为StockInfo
-        stocks = self._convert_to_stock_info(selected, date)
+        # 转换为StockInfo（使用T-1日期查询数据）
+        stocks = self._convert_to_stock_info(selected, data_date)
         
-        # 保存到数据库
+        # 保存到数据库（使用选股日期date作为批次ID）
         if save_to_db and stocks:
             self._save_selection_to_db(date, strategy_id or "DEFAULT", stocks, strategy_params)
         
