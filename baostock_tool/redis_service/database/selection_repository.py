@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from database.connection import DatabasePool, get_db_connection
 from models.stock_selection import SelectionMessage, StockInfo
+from contextlib import contextmanager, get_db_connection, release_db_connection
 
 
 class SelectionRepository:
@@ -28,14 +29,14 @@ class SelectionRepository:
         if self._db_pool:
             return self._db_pool.connection()
         
-        from contextlib import contextmanager
+
         @contextmanager
         def wrapper():
             conn = get_db_connection()
             try:
                 yield conn
             finally:
-                pass
+                release_db_connection(conn)  # 释放连接
         return wrapper()
     
     def save_selection_result(

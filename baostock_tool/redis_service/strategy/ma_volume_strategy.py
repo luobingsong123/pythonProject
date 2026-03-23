@@ -12,6 +12,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from strategy.base import BaseStrategy, StrategyResult
 from database.queries import StockQueryService
+from datetime import datetime, timedelta
+from database.connection import get_db_connection, release_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -209,8 +211,7 @@ class MAVolumeStrategy(BaseStrategy):
         # 获取历史数据计算均线序列
         # 需要至少ma_long_period + 10天的数据
         days_needed = self.ma_long_period + 10
-        
-        from datetime import datetime, timedelta
+
         end = datetime.strptime(date, "%Y%m%d")
         start = end - timedelta(days=days_needed * 2)  # 多取一些天数
         
@@ -218,9 +219,8 @@ class MAVolumeStrategy(BaseStrategy):
         formatted_end = end.strftime("%Y-%m-%d")
         
         # 获取历史收盘价
-        import pymysql
-        from database.connection import get_db_connection
-        
+
+        conn = None
         try:
             conn = get_db_connection()
             with conn.cursor() as cursor:
@@ -273,6 +273,10 @@ class MAVolumeStrategy(BaseStrategy):
         except Exception as e:
             logger.warning(f"检查均线斜率失败 {market}:{code}: {e}")
             return False
+        finally:
+            # 确保连接被释放
+            if conn:
+                release_db_connection(conn)
     
     def _calculate_ma_series(self, prices: List[float], period: int) -> List[float]:
         """
@@ -356,17 +360,14 @@ class MAVolumeStrategy(BaseStrategy):
         Returns:
             Dict: 包含max, min, ratio的统计信息
         """
-        from datetime import datetime, timedelta
-        
+
         end = datetime.strptime(date, "%Y%m%d")
         start = end - timedelta(days=self.volume_lookback * 2)
         
         formatted_start = start.strftime("%Y-%m-%d")
         formatted_end = end.strftime("%Y-%m-%d")
-        
-        import pymysql
-        from database.connection import get_db_connection
-        
+
+        conn = None
         try:
             conn = get_db_connection()
             with conn.cursor() as cursor:
@@ -398,6 +399,10 @@ class MAVolumeStrategy(BaseStrategy):
         except Exception as e:
             logger.warning(f"获取成交量统计失败 {market}:{code}: {e}")
             return {"max": 0, "min": 1, "ratio": float('inf')}
+        finally:
+            # 确保连接被释放
+            if conn:
+                release_db_connection(conn)
     
     def _calculate_score(self, stock_data: Dict[str, Any]) -> float:
         """
