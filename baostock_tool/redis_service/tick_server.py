@@ -20,6 +20,7 @@ from config.config_loader import update_global_settings
 from database.queries import StockQueryService
 from database.connection import init_db_pool
 from backtest.publisher import TickDataPublisher
+from strategy.selector import StockSelector
 from utils.log_manager import get_logger
 
 
@@ -163,6 +164,9 @@ class TickServer:
         # 初始化Tick发布器
         self.publisher: Optional[TickDataPublisher] = None
 
+        # 初始化选股器
+        self.selector: Optional[StockSelector] = None
+
     def initialize(self, db_config: Dict[str, Any]):
         """
         初始化发布器
@@ -176,6 +180,14 @@ class TickServer:
             self.logger.info("数据库连接池初始化成功")
 
             query_service = StockQueryService(db_pool=db_pool)
+
+            # 初始化选股器（如果配置了使用策略）
+            if settings.backtest.use_strategy:
+                try:
+                    self.selector = StockSelector(query_service=query_service)
+                    self.logger.info(f"选股器初始化成功，策略ID: {settings.backtest.strategy_id}")
+                except Exception as e:
+                    self.logger.warning(f"选股器初始化失败: {e}，将不使用选股策略")
 
             self.publisher = TickDataPublisher(
                 query_service=query_service,
@@ -289,62 +301,109 @@ class TickServer:
                 stocks = []
                 invalid_codes = []
 
-                for code in request.codes:
-                    stock_info = TickRequest.validate_code(code)
-                    if stock_info:
-                        stocks.append(stock_info)
-                    else:
-                        invalid_codes.append(code)
+                # 如果未提供股票代码但启用了选股策略，则自动选股
+                if not request.codes and self.selector:
+                    self.logger.info("未提供股票代码，使用选股策略自动选股")
+                    try:
+                        selected_stocks = self.selector.select(
+                            date=request.start_date,
+                            strategy_id=settings.backtest.strategy_id,
+                            count=settings.backtest.default_selection_count,
+                            save_to_db=False,
+                            strategy_params=settings.backtest.strategy_params
+                        )
 
-                if invalid_codes:
-                    response = {
-                        "success": False,
-                        "error": f"无效的股票代码: {', '.join(invalid_codes)}",
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    self._send_response(client_socket, response)
-                    return
+                        # 将选股结果转换为stock_info格式
+                        for stock in selected_stocks:
+                            market = "sh" if stock.exchange == "SSE" else "sz"
+                            stock_info = (market, stock.exchange, int(stock.symbol), stock.symbol)
+                            stocks.append(stock_info)
 
-                if not stocks:
-                    response = {
-                        "success": False,
-                        "error": "未提供有效的股票代码",
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    self._send_response(client_socket, response)
-                    return
+                        self.logger.info(f"选股策略选出了 {len(stocks)} 只股票: {[s[3] for s in stocks]}")
+
+                        if not stocks:
+                            response = {
+                                "success": False,
+                                "error": "选股策略未选出任何股票",
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            self._send_response(client_socket, response)
+                            return
+                    except Exception as e:
+                        self.logger.error(f"选股失败: {e}")
+                        response = {
+                            "success": False,
+                            "error": f"选股失败: {e}",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        self._send_response(client_socket, response)
+                        return
+                else:
+                    # 验证用户提供的股票代码
+                    for code in request.codes:
+                        stock_info = TickRequest.validate_code(code)
+                        if stock_info:
+                            stocks.append(stock_info)
+                        else:
+                            invalid_codes.append(code)
+
+                    if invalid_codes:
+                        response = {
+                            "success": False,
+                            "error": f"无效的股票代码: {', '.join(invalid_codes)}",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        self._send_response(client_socket, response)
+                        return
+
+                    if not stocks:
+                        response = {
+                            "success": False,
+                            "error": "未提供有效的股票代码",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        self._send_response(client_socket, response)
+                        return
 
                 # 逐日推送Tick数据
-                all_results = {}
+                all_results = {}  # 按日期分组的统计 {date: {symbol: count}}
                 for date in request.date_list:
                     self.logger.info(f"开始推送Tick数据: 日期={date}, 股票数={len(stocks)}")
                     results = self.publisher.publish_tick_data_batch(date, stocks)
 
-                    # 合并结果
-                    for symbol, count in results.items():
-                        if symbol in all_results:
-                            all_results[symbol] += count
-                        else:
-                            all_results[symbol] = count
+                    # 按日期保存结果
+                    all_results[date] = results
 
-                # 构建统计响应（只返回每个证券代码和各自的数量）
+                # 构建统计响应（按日期分组）
                 response = {
                     "success": True,
                     "start_date": request.start_date,
                     "end_date": request.end_date,
+                    "strategy": settings.backtest.strategy_id if settings.backtest.use_strategy else "MANUAL",
+                    "stock_count": len(stocks),
                     "stats": [
                         {
-                            "code": symbol,
-                            "count": count
+                            "date": date,
+                            "items": [
+                                {
+                                    "code": symbol,
+                                    "count": count
+                                }
+                                for symbol, count in date_results.items()
+                            ]
                         }
-                        for symbol, count in all_results.items()
+                        for date, date_results in all_results.items()
                     ]
                 }
 
                 # 发送响应
                 self._send_response(client_socket, response)
-                total_count = sum(all_results.values())
-                self.logger.info(f"推送完成: 日期范围={request.start_date}~{request.end_date}, 总股票={len(stocks)}, 总推送={total_count}")
+                total_count = sum(
+                    sum(date_results.values())
+                    for date_results in all_results.values()
+                )
+                source = "选股策略" if not request.codes and self.selector else "手动指定"
+                self.logger.info(f"推送完成: 日期范围={request.start_date}~{request.end_date}, 来源={source}, 总股票={len(stocks)}, 总推送={total_count}")
 
             except Exception as e:
                 self.logger.error(f"处理请求错误: {e}")
@@ -404,6 +463,10 @@ def main():
     logger.info(f"TCP监听地址: 0.0.0.0:9999")
     logger.info(f"Redis: {settings.redis.host}:{settings.redis.port} DB={settings.redis.db}")
     logger.info(f"数据库: {settings.database.host}:{settings.database.port}/{settings.database.database}")
+    logger.info(f"选股策略: {'启用' if settings.backtest.use_strategy else '禁用'}")
+    if settings.backtest.use_strategy:
+        logger.info(f"策略ID: {settings.backtest.strategy_id}")
+        logger.info(f"默认选股数量: {settings.backtest.default_selection_count}")
     logger.info("="*60)
     logger.info("")
     logger.info("订阅请求格式 (JSON):")
@@ -411,7 +474,10 @@ def main():
     logger.info('  "sub_type": 1,           //1-快照，2-逐笔委托，3-逐笔成交')
     logger.info('  "start_date": "20241111",')
     logger.info('  "end_date": "20241112",')
-    logger.info('  "stock": ["000001", "600001"]')
+    if settings.backtest.use_strategy:
+        logger.info('  "stock": []               //空数组表示使用选股策略自动选股')
+        logger.info('  或')
+    logger.info('  "stock": ["000001", "600001"]  //指定股票代码（手动模式）')
     logger.info('}')
     logger.info("")
     logger.info("股票代码支持格式:")
@@ -419,6 +485,11 @@ def main():
     logger.info('  - "sz.000001" (完整格式)')
     logger.info('  - "600000" (纯代码，自动识别市场)')
     logger.info('  - "000001" (纯代码，自动识别市场)')
+    if settings.backtest.use_strategy:
+        logger.info("")
+        logger.info("选股策略模式:")
+        logger.info('  - 不提供 "stock" 字段或 "stock": [] 时，自动使用配置的策略选股')
+        logger.info('  - 提供 "stock" 字段时，推送指定的股票代码')
     logger.info("="*60)
 
     # 数据库配置
