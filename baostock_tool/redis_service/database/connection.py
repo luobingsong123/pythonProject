@@ -3,6 +3,7 @@
 """
 
 import pymysql
+import time
 from pymysql.cursors import DictCursor
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
@@ -19,7 +20,9 @@ class DatabasePool:
         password: str = "",
         database: str = "",
         charset: str = "utf8mb4",
-        pool_size: int = 5
+        pool_size: int = 5,
+        max_retries: int = 3,
+        retry_delay: float = 0.1
     ):
         """
         初始化数据库连接池
@@ -32,6 +35,8 @@ class DatabasePool:
             database: 数据库名
             charset: 字符集
             pool_size: 连接池大小
+            max_retries: 获取连接失败时的最大重试次数
+            retry_delay: 重试延迟（秒）
         """
         self.config = {
             "host": host,
@@ -46,6 +51,8 @@ class DatabasePool:
         self._pool = []
         self._max_size = pool_size
         self._in_use = 0
+        self._max_retries = max_retries
+        self._retry_delay = retry_delay
     
     def get_connection(self) -> pymysql.Connection:
         """
@@ -54,17 +61,22 @@ class DatabasePool:
         Returns:
             pymysql.Connection: 数据库连接
         """
-        # 先从连接池获取
-        if self._pool:
-            return self._pool.pop()
+        for attempt in range(self._max_retries):
+            # 先从连接池获取
+            if self._pool:
+                return self._pool.pop()
 
-        # 如果未达到最大连接数，创建新连接
-        if self._in_use < self._max_size:
-            self._in_use += 1
-            return pymysql.connect(**self.config)
-
-        # 连接池已耗尽
-        raise Exception("Connection pool exhausted")
+            # 如果未达到最大连接数，创建新连接
+            if self._in_use < self._max_size:
+                self._in_use += 1
+                return pymysql.connect(**self.config)
+            
+            # 连接池已满，等待重试
+            if attempt < self._max_retries - 1:
+                time.sleep(self._retry_delay)
+        
+        # 重试后仍然失败
+        raise Exception(f"Connection pool exhausted after {self._max_retries} retries")
 
     def release_connection(self, conn: pymysql.Connection):
         """
