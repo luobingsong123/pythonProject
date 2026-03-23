@@ -19,7 +19,8 @@ class SelectionWriter(BaseRedisService):
         self, 
         redis_client: Optional[redis.Redis] = None,
         maxlen: Optional[int] = None,
-        data_structure: Optional[str] = None
+        data_structure: Optional[str] = None,
+        expire_seconds: Optional[int] = None
     ):
         """
         初始化写入器
@@ -28,11 +29,13 @@ class SelectionWriter(BaseRedisService):
             redis_client: Redis客户端
             maxlen: 最大长度，默认使用配置中的值
             data_structure: 数据结构类型 "stream" 或 "list"，默认使用配置中的值
+            expire_seconds: Key过期时间（秒），默认使用配置中的值
         """
         super().__init__(redis_client)
         self._maxlen = maxlen or settings.selection.maxlen
         self._data_structure = (data_structure or settings.selection.data_structure).lower()
         self._key_prefix = settings.selection.key_prefix
+        self._expire_seconds = expire_seconds or settings.selection.expire_seconds
         
         if self._data_structure not in ['stream', 'list']:
             logger.warning(f"不支持的数据结构类型: {self._data_structure}，使用默认值 'stream'")
@@ -98,12 +101,19 @@ class SelectionWriter(BaseRedisService):
         
         logger.debug(f"推送选股数据到 Redis Stream: Key={key}, 批次={message.batch_id}")
         
-        return self._client.xadd(
+        msg_id = self._client.xadd(
             key,
             fields,
             maxlen=self._maxlen,
             approximate=True
         )
+        
+        # 设置过期时间
+        if self._expire_seconds > 0:
+            self._client.expire(key, self._expire_seconds)
+            logger.debug(f"设置Key过期时间: {key}, {self._expire_seconds}秒")
+        
+        return msg_id
     
     def _write_to_list(self, key: str, message: SelectionMessage) -> str:
         """
@@ -127,8 +137,13 @@ class SelectionWriter(BaseRedisService):
         if self._client.exists(key):
             pipe.delete(key)  # 删除所有的 key
         pipe.rpush(key, value)
-        # pipe.ltrim(key, -self._maxlen, -1)  # 保留最新的 maxlen 条
         pipe.ltrim(key, -self._maxlen, -1)  # 保留最新的 maxlen 条
+        
+        # 设置过期时间
+        if self._expire_seconds > 0:
+            pipe.expire(key, self._expire_seconds)
+            logger.debug(f"设置Key过期时间: {key}, {self._expire_seconds}秒")
+        
         results = pipe.execute()
         
         # 返回写入后的列表长度作为标识

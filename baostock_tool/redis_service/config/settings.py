@@ -73,6 +73,8 @@ class SelectionConfig(BaseModel):
     consumer_group: str = "selection_consumer"
     # 消费者名称 (仅 Stream 模式有效)
     consumer_name: str = "consumer_01"
+    # Redis Key 过期时间（秒），默认24小时
+    expire_seconds: int = 86400
 
 
 class BacktestConfig(BaseModel):

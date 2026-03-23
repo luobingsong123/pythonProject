@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS `stock_selection_result` (
     KEY `idx_trade_date` (`trade_date`),
     KEY `idx_strategy_id` (`strategy_id`),
     KEY `idx_created_at` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='选股结果主表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='选股结果主表';
 
 
 -- --------------------------------------------------------
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS `stock_selection_detail` (
     KEY `idx_exchange_symbol` (`exchange`, `symbol`),
     KEY `idx_market_code` (`market`, `code_int`),
     KEY `idx_sort_order` (`batch_id`, `sort_order`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='选股结果明细表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='选股结果明细表';
 
 
 -- --------------------------------------------------------
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS `stock_selection_stats` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_batch_id` (`batch_id`),
     KEY `idx_trade_date` (`trade_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='选股结果统计表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='选股结果统计表';
 
 
 -- --------------------------------------------------------

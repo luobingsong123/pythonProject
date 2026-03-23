@@ -128,7 +128,8 @@ class ConfigLoader:
             key_prefix=self.config.get(section, 'key_prefix', fallback='selection:stream'),
             maxlen=self.config.getint(section, 'maxlen', fallback=10000),
             consumer_group=self.config.get(section, 'consumer_group', fallback='selection_consumer'),
-            consumer_name=self.config.get(section, 'consumer_name', fallback='consumer_01')
+            consumer_name=self.config.get(section, 'consumer_name', fallback='consumer_01'),
+            expire_seconds=self.config.getint(section, 'expire_seconds', fallback=86400)
         )
     
     def _load_backtest_config(self) -> BacktestConfig:
