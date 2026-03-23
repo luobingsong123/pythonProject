@@ -210,7 +210,7 @@ class StockSelector:
             
             # 获取均线
             ma_values = self.query_service.calculate_ma(
-                market, code, date, [5, 10, 20]
+                market, code, date, [5, 10, 20, 60]
             )
             
             # 获取近5日最高价
@@ -265,6 +265,7 @@ class StockSelector:
                     ma5=float(ma_values.get(5, 0)),
                     ma10=float(ma_values.get(10, 0)),
                     ma20=float(ma_values.get(20, 0)),
+                    ma60=float(ma_values.get(60, 0)) if ma_values.get(60) else None,
                     vol_ma5=float(result.signals.get("volume", 0)) * 0.8,
                     vol_ma10=float(result.signals.get("volume", 0)) * 0.9
                 ),

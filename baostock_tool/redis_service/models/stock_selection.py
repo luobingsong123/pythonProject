@@ -26,6 +26,7 @@ class TechnicalIndicators(BaseModel):
     ma5: float = Field(..., description="5日均线")
     ma10: float = Field(..., description="10日均线")
     ma20: float = Field(..., description="20日均线")
+    ma60: Optional[float] = Field(default=None, description="60日均线")
     vol_ma5: float = Field(..., description="5日均量")
     vol_ma10: float = Field(..., description="10日均量")
 
