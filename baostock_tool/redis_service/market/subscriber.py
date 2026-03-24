@@ -35,26 +35,42 @@ class SnapshotSubscriber(BaseRedisService):
         Yields:
             SnapshotData: 行情快照数据对象
         """
+        # 不忽略订阅消息，需要等待订阅确认
         self._pubsub = self._client.pubsub()
         self._pubsub.psubscribe(pattern)
         self._listening = True
         
+        # 等待订阅确认消息
         try:
-            for message in self._pubsub.listen():
-                if not self._listening:
-                    break
-                
-                if message["type"] == "pmessage":
-                    channel = message["channel"]
-                    data = message["data"]
-                    
-                    try:
-                        snapshot = SnapshotParser.parse_message(data)
-                        yield snapshot
-                    except Exception as e:
-                        # 解析失败时跳过
-                        print(f"Failed to parse message: {e}")
+            confirm_msg = self._pubsub.get_message(timeout=5)
+            if confirm_msg and confirm_msg["type"] == "psubscribe":
+                print(f"Pattern subscription confirmed: {confirm_msg}")
+        except Exception as e:
+            print(f"Error waiting for subscription confirm: {e}")
+        
+        try:
+            while self._listening:
+                try:
+                    message = self._pubsub.get_message(timeout=1)
+                    if message is None:
                         continue
+                    # 跳过订阅相关消息
+                    if message["type"] in ("psubscribe", "subscribe", "punsubscribe", "unsubscribe"):
+                        continue
+                    if message["type"] == "pmessage":
+                        data = message["data"]
+                        
+                        try:
+                            snapshot = SnapshotParser.parse_message(data)
+                            yield snapshot
+                        except Exception as e:
+                            # 解析失败时跳过
+                            print(f"Failed to parse message: {e}")
+                            continue
+                except redis.ConnectionError:
+                    if not self._listening:
+                        break
+                    continue
         finally:
             self.unsubscribe()
     
@@ -68,21 +84,26 @@ class SnapshotSubscriber(BaseRedisService):
         Yields:
             dict: 包含channel和data的原始消息
         """
-        self._pubsub = self._client.pubsub()
+        self._pubsub = self._client.pubsub(ignore_subscribe_messages=True)
         self._pubsub.psubscribe(pattern)
         self._listening = True
         
         try:
-            for message in self._pubsub.listen():
-                if not self._listening:
-                    break
-                
-                if message["type"] == "pmessage":
-                    yield {
-                        "channel": message["channel"],
-                        "pattern": message["pattern"],
-                        "data": message["data"]
-                    }
+            while self._listening:
+                try:
+                    message = self._pubsub.get_message(timeout=1)
+                    if message is None:
+                        continue
+                    if message["type"] == "pmessage":
+                        yield {
+                            "channel": message["channel"],
+                            "pattern": message["pattern"],
+                            "data": message["data"]
+                        }
+                except redis.ConnectionError:
+                    if not self._listening:
+                        break
+                    continue
         finally:
             self.unsubscribe()
     
@@ -94,21 +115,26 @@ class SnapshotSubscriber(BaseRedisService):
             pattern: 通道模式
             callback: 处理消息的回调函数
         """
-        self._pubsub = self._client.pubsub()
+        self._pubsub = self._client.pubsub(ignore_subscribe_messages=True)
         self._pubsub.psubscribe(pattern)
         self._listening = True
         
         def listener():
-            for message in self._pubsub.listen():
-                if not self._listening:
-                    break
-                
-                if message["type"] == "pmessage":
-                    try:
-                        snapshot = SnapshotParser.parse_message(message["data"])
-                        callback(snapshot)
-                    except Exception as e:
-                        print(f"Error in callback: {e}")
+            while self._listening:
+                try:
+                    message = self._pubsub.get_message(timeout=1)
+                    if message is None:
+                        continue
+                    if message["type"] == "pmessage":
+                        try:
+                            snapshot = SnapshotParser.parse_message(message["data"])
+                            callback(snapshot)
+                        except Exception as e:
+                            print(f"Error in callback: {e}")
+                except redis.ConnectionError:
+                    if not self._listening:
+                        break
+                    continue
         
         self._thread = threading.Thread(target=listener, daemon=True)
         self._thread.start()
@@ -153,22 +179,27 @@ class SnapshotSubscriber(BaseRedisService):
         """
         channel = f"market:snapshot:{exchange}:{symbol}"
         
-        self._pubsub = self._client.pubsub()
+        self._pubsub = self._client.pubsub(ignore_subscribe_messages=True)
         self._pubsub.subscribe(channel)
         self._listening = True
         
         try:
-            for message in self._pubsub.listen():
-                if not self._listening:
-                    break
-                
-                if message["type"] == "message":
-                    try:
-                        snapshot = SnapshotParser.parse_message(message["data"])
-                        yield snapshot
-                    except Exception as e:
-                        print(f"Failed to parse message: {e}")
+            while self._listening:
+                try:
+                    message = self._pubsub.get_message(timeout=1)
+                    if message is None:
                         continue
+                    if message["type"] == "message":
+                        try:
+                            snapshot = SnapshotParser.parse_message(message["data"])
+                            yield snapshot
+                        except Exception as e:
+                            print(f"Failed to parse message: {e}")
+                            continue
+                except redis.ConnectionError:
+                    if not self._listening:
+                        break
+                    continue
         finally:
             self.unsubscribe()
     
