@@ -101,9 +101,6 @@ class TickClient:
         Returns:
             Dict: 服务器响应
         """
-        # 先启动接收线程
-        self._start_receiving(tick_file_path, stocks)
-
         # 构建订阅请求
         stock_codes = [s["symbol"] for s in stocks]
 
@@ -118,6 +115,12 @@ class TickClient:
         self.logger.info(f"发送订阅请求: {request_json}")
 
         try:
+            # 先启动接收线程（在连接服务器之前启动）
+            self._start_receiving(tick_file_path, stocks)
+
+            # 等待Redis订阅确认
+            time.sleep(0.5)
+
             # 连接服务器
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((self.host, self.port))
@@ -148,35 +151,36 @@ class TickClient:
                     for date_stat in response["stats"]:
                         for item in date_stat["items"]:
                             expected_count += item.get("count", 0)
-                
+
                 self.logger.info(f"预期接收tick数据: {expected_count} 条")
-                
+                self.logger.info(f"开始从Redis接收tick数据...")
+
                 # 等待tick数据接收完成或超时
                 timeout = 300  # 5分钟超时
                 start_wait = time.time()
                 last_count = 0
                 no_change_time = 0
-                
+
                 while time.time() - start_wait < timeout:
                     current_count = self.received_count
-                    
+
                     # 如果已接收足够的数据
                     if expected_count > 0 and current_count >= expected_count:
                         self.logger.info(f"tick数据接收完成: {current_count}/{expected_count} 条")
                         break
-                    
+
                     # 如果连续30秒没有新数据，认为接收完成
                     if current_count == last_count:
                         no_change_time += 1
                         if no_change_time >= 30:
-                            self.logger.info(f"tick数据接收稳定，停止等待: {current_count} 条")
+                            self.logger.info(f"tick接收: {current_count} 条")
                             break
                     else:
                         no_change_time = 0
-                    
+
                     last_count = current_count
                     time.sleep(1)
-                
+
                 if time.time() - start_wait >= timeout:
                     self.logger.warning(f"等待tick数据超时，已接收: {current_count}/{expected_count} 条")
             else:
@@ -225,6 +229,10 @@ class TickClient:
             for s in stocks
         }
 
+        # 打印调试信息
+        self.logger.info(f"订阅股票集合 (前5个): {list(stock_set)[:5]}")
+        self.logger.info(f"订阅股票总数: {len(stock_set)}")
+
         # 启动接收线程
         self.receive_thread = threading.Thread(
             target=self._receive_loop,
@@ -233,7 +241,7 @@ class TickClient:
         )
         self.receive_thread.start()
         self.logger.info(f"开始接收tick数据: {tick_file_path}")
-        
+
         # 等待订阅确认
         import time
         for _ in range(10):
@@ -255,17 +263,18 @@ class TickClient:
         try:
             import redis
             pattern = "market:snapshot:*"
-            
+            total_messages = 0  # 总接收消息数（包括过滤掉的）
+
             # 创建 pubsub 并订阅
             pubsub = self.snapshot_subscriber._client.pubsub()
             pubsub.psubscribe(pattern)
-            
+
             # 等待订阅确认
             confirm_msg = pubsub.get_message(timeout=5)
             if confirm_msg and confirm_msg["type"] == "psubscribe":
                 self.logger.info(f"Redis订阅确认: {confirm_msg}")
                 self.subscribed = True
-            
+
             while self.receiving:
                 try:
                     message = pubsub.get_message(timeout=1)
@@ -274,11 +283,21 @@ class TickClient:
                     # 跳过订阅相关消息
                     if message["type"] in ("psubscribe", "subscribe", "punsubscribe", "unsubscribe"):
                         continue
+
+                    # 调试：打印收到的消息类型（仅前5条）
+                    if self.received_count == 0 and message["type"] == "pmessage":
+                        self.logger.debug(f"收到pmessage: channel={message.get('channel')}, pattern={message.get('pattern')}")
                     if message["type"] == "pmessage":
+                        total_messages += 1
+
                         # 检查是否是订阅的股票
                         data = message["data"]
                         channel = message["channel"]
-                        
+
+                        # 每1000条打印总消息数
+                        if total_messages % 1000 == 0:
+                            self.logger.info(f"总接收消息数: {total_messages}, 已写入: {self.received_count}")
+
                         # 从 channel 解析 exchange:symbol
                         parts = channel.decode() if isinstance(channel, bytes) else channel
                         parts = parts.split(":")
@@ -289,7 +308,7 @@ class TickClient:
                                 try:
                                     from models.snapshot import SnapshotParser
                                     snapshot = SnapshotParser.parse_message(data)
-                                    
+
                                     snap_data = snapshot.data
                                     self.tick_writer.writerow([
                                         snapshot.timestamp,
@@ -312,6 +331,10 @@ class TickClient:
                                         self.logger.info(f"已接收 {self.received_count} 条tick数据")
                                 except Exception as e:
                                     self.logger.error(f"解析tick数据失败: {e}")
+                            else:
+                                # 打印不在订阅集中的消息（仅前10条）
+                                if total_messages < 10:
+                                    self.logger.debug(f"忽略非订阅股票的tick数据: channel={channel}, key={key}")
                 except redis.ConnectionError:
                     if not self.receiving:
                         break

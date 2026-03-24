@@ -46,13 +46,14 @@ class MAVolumeStrategy(BaseStrategy):
         # self.ma_long_period = self.params.get("ma_long_period", 60)
         # self.volume_lookback = self.params.get("volume_lookback", 60)
         # self.max_volume_ratio = self.params.get("max_volume_ratio", 3)
-        self.max_market_cap = self.params.get("max_market_cap", 2000000)  # 2000亿 = 2000000百万
-        self.min_slope_angle = self.params.get("min_slope_angle", -180)
-        self.max_slope_angle = self.params.get("max_slope_angle", 180)
-        self.ma_short_period = self.params.get("ma_short_period", 20)  # 短期均线周期，必须为正数
-        self.ma_long_period = self.params.get("ma_long_period", 60)    # 长期均线周期
+        self.max_market_cap = self.params.get("max_market_cap", 2000000)  # 200亿 = 200000百万
+        self.min_slope_angle = self.params.get("min_slope_angle", 0)
+        self.max_slope_angle = self.params.get("max_slope_angle", 30)
+        self.ma_short_period = self.params.get("ma_short_period", 20)
+        self.ma_long_period = self.params.get("ma_long_period", 60)
         self.volume_lookback = self.params.get("volume_lookback", 60)
-        self.max_volume_ratio = self.params.get("max_volume_ratio", 30)
+        self.max_volume_ratio = self.params.get("max_volume_ratio", 3)
+        
         self.query_service = StockQueryService()
     
     def select(

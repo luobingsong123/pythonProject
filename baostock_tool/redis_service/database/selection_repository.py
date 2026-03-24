@@ -9,7 +9,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from database.connection import DatabasePool, get_db_connection
 from models.stock_selection import SelectionMessage, StockInfo
-from contextlib import contextmanager, get_db_connection, release_db_connection
+from contextlib import contextmanager
+from .connection import get_db_connection, release_db_connection
 
 
 class SelectionRepository:

@@ -6,7 +6,6 @@ import redis
 from typing import Optional
 from core.base_service import BaseRedisService
 from models.snapshot import SnapshotData, SnapshotParser
-from config.settings import settings
 from models.snapshot import MarketQuote
 from utils.serializer import TimestampUtil
 

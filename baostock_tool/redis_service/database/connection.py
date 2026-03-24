@@ -22,7 +22,7 @@ class DatabasePool:
         charset: str = "utf8mb4",
         pool_size: int = 5,
         max_retries: int = 3,
-        retry_delay: float = 0.1
+        retry_delay: float = 0.2
     ):
         """
         初始化数据库连接池

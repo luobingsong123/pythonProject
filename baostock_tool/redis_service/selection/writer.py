@@ -100,7 +100,13 @@ class SelectionWriter(BaseRedisService):
         fields = SelectionParser.to_stream_fields(message)
         
         logger.debug(f"推送选股数据到 Redis Stream: Key={key}, 批次={message.batch_id}")
-        
+
+        # 注意：这将清空该Key下所有的Stream消息
+        if self._client.exists(key):
+            self._client.delete(key)
+            logger.debug(f"检测到旧Key存在，已删除: {key}")
+
+        # 使用xadd创建新的Stream。由于Key刚被删除，这里相当于从零开始创建
         msg_id = self._client.xadd(
             key,
             fields,
@@ -134,8 +140,8 @@ class SelectionWriter(BaseRedisService):
         
         # 使用 pipeline 保证原子性
         pipe = self._client.pipeline()
-        if self._client.exists(key):
-            pipe.delete(key)  # 删除所有的 key
+
+        pipe.delete(key)  # 删除所有的 key
         pipe.rpush(key, value)
         pipe.ltrim(key, -self._maxlen, -1)  # 保留最新的 maxlen 条
         
@@ -169,7 +175,9 @@ class SelectionWriter(BaseRedisService):
                 approximate=True
             )
         else:
+            # 覆盖逻辑：在Pipeline中先删除
             pipe = self._client.pipeline()
+            pipe.delete(key)  # 先删除
             pipe.rpush(key, data)
             pipe.ltrim(key, -self._maxlen, -1)
             results = pipe.execute()

@@ -21,8 +21,8 @@ from strategy.selector import StockSelector
 from models.stock_selection import SelectionMessage
 from utils.serializer import TimestampUtil
 from typing import Optional, List, Dict, Any
-
-
+from core.connection import get_redis_client
+from utils.log_manager import setup_logging, get_logger
 def check_redis_connection() -> bool:
     """
     检查Redis连接是否正常
@@ -31,7 +31,6 @@ def check_redis_connection() -> bool:
         bool: 连接是否正常
     """
     try:
-        from core.connection import get_redis_client
         client = get_redis_client()
         result = client.ping()
         client.close()
@@ -60,7 +59,6 @@ def run_selection_service(
         default_selection_count: 默认选股数量
         strategy_params: 策略参数
     """
-    from utils.log_manager import get_logger
     logger = get_logger("selection_service")
     
     # 检查Redis连接
@@ -174,7 +172,6 @@ def run_selection_service(
 
 def main():
     """主函数"""
-    from utils.log_manager import setup_logging, get_logger
     
     # 配置文件路径
     config_path = 'config/config.ini'
