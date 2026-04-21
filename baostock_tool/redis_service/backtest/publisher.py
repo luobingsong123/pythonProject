@@ -137,42 +137,51 @@ class TickDataPublisher:
         all_ticks.sort(key=lambda x: x["timestamp_ms"])
         logger.info(f"按时间戳排序完成: 总Tick数={len(all_ticks)}")
         
-        # 3. 按时间顺序推送，seqno从1开始累加，最后一笔为0表示推送完成
+        # 3. 统计每个证券的tick总数，用于判断该证券最后一笔(seqno=0)
+        symbol_total: Dict[str, int] = {}
+        for item in all_ticks:
+            symbol_total[item["symbol"]] = symbol_total.get(item["symbol"], 0) + 1
+        
+        # 4. 按时间顺序推送，seqno按证券代码单独编号，从1累加，该证券最后一笔为0
         results: Dict[str, int] = {}
-        total_ticks = len(all_ticks)
+        symbol_seq: Dict[str, int] = {}  # 每个证券的当前序号
         
         if self.use_pipeline:
             # 使用 Pipeline 批量推送
             pipe = self.publisher._client.pipeline()
             
-            for idx, item in enumerate(all_ticks):
+            for item in all_ticks:
                 snapshot = self._convert_tick_to_snapshot(
                     item["tick"], date, item["exchange"], item["symbol"]
                 )
                 if snapshot:
-                    # 最后一笔seqno=0作为推送完成标记，其余从1递增
-                    snapshot.seqno = 0 if idx == total_ticks - 1 else idx + 1
+                    symbol = item["symbol"]
+                    symbol_seq[symbol] = symbol_seq.get(symbol, 0) + 1
+                    # 该证券最后一笔seqno=0，其余从1递增
+                    snapshot.seqno = 0 if symbol_seq[symbol] == symbol_total[symbol] else symbol_seq[symbol]
                     channel = snapshot.get_channel()
                     message = SnapshotParser.to_json(snapshot)
                     pipe.publish(channel, message)
-                    results[item["symbol"]] = results.get(item["symbol"], 0) + 1
+                    results[symbol] = results.get(symbol, 0) + 1
             
             # 一次性执行所有 publish
             pipe.execute()
-            logger.info(f"Pipeline批量推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={total_ticks}")
+            logger.info(f"Pipeline批量推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={len(all_ticks)}")
         else:
             # 逐条推送（兼容模式）
-            for idx, item in enumerate(all_ticks):
+            for item in all_ticks:
                 snapshot = self._convert_tick_to_snapshot(
                     item["tick"], date, item["exchange"], item["symbol"]
                 )
                 if snapshot:
-                    # 最后一笔seqno=0作为推送完成标记，其余从1递增
-                    snapshot.seqno = 0 if idx == total_ticks - 1 else idx + 1
+                    symbol = item["symbol"]
+                    symbol_seq[symbol] = symbol_seq.get(symbol, 0) + 1
+                    # 该证券最后一笔seqno=0，其余从1递增
+                    snapshot.seqno = 0 if symbol_seq[symbol] == symbol_total[symbol] else symbol_seq[symbol]
                     self.publisher.publish(snapshot)
-                    results[item["symbol"]] = results.get(item["symbol"], 0) + 1
+                    results[symbol] = results.get(symbol, 0) + 1
             
-            logger.info(f"逐条推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={total_ticks}")
+            logger.info(f"逐条推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={len(all_ticks)}")
         
         return results
     

@@ -275,6 +275,9 @@ class TickClient:
                 self.logger.info(f"Redis订阅确认: {confirm_msg}")
                 self.subscribed = True
 
+            # 记录每个证券是否收到完成标记(seqno=0)
+            finished_stocks: set = set()
+
             while self.receiving:
                 try:
                     message = pubsub.get_message(timeout=1)
@@ -327,11 +330,17 @@ class TickClient:
                                     ])
                                     self.received_count += 1
 
-                                    # seqno=0 表示推送完成
+                                    # seqno=0 表示该证券推送完成
                                     if snapshot.seqno == 0:
-                                        self.logger.info(f"收到推送完成标记(seqno=0)，tick数据接收完成: {self.received_count} 条")
-                                        self.receiving = False
-                                        break
+                                        finished_key = f"{snapshot.exchange}:{snapshot.symbol}"
+                                        finished_stocks.add(finished_key)
+                                        self.logger.info(f"证券 {finished_key} 推送完成(seqno=0), 已完成: {len(finished_stocks)}/{len(stock_set)}")
+
+                                        # 所有订阅证券都收到完成标记
+                                        if finished_stocks >= stock_set:
+                                            self.logger.info(f"所有证券推送完成，tick数据接收完成: {self.received_count} 条")
+                                            self.receiving = False
+                                            break
 
                                     # 每1000条打印一次
                                     if self.received_count % 1000 == 0:
