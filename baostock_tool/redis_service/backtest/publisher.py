@@ -91,6 +91,9 @@ class TickDataPublisher:
         """
         批量发布多只股票的Tick数据（推荐使用）
         
+        按UNIX时间戳排序推送，不区分证券代码先后，
+        确保所有股票的Tick数据按照真实时间顺序发布。
+        
         Args:
             date: 日期 YYYYMMDD
             stocks: 股票列表 [(market, exchange, code, symbol), ...]
@@ -108,54 +111,61 @@ class TickDataPublisher:
         stock_params = [(market, code) for market, exchange, code, symbol in stocks]
         tick_data_map = self.query_service.get_tick_data_batch(date, stock_params)
         
+        # 2. 收集所有股票的tick数据，带上股票信息，按UNIX时间戳排序
+        all_ticks: List[Dict[str, Any]] = []
+        for market, exchange, code, symbol in stocks:
+            code_str = f"{code:06d}"
+            tick_data = tick_data_map.get(code_str)
+            
+            if not tick_data:
+                tick_data = self._get_cached_empty_tick_data(date)
+                logger.debug(f"未查到Tick数据，使用缓存空数据: {market}:{code}")
+            
+            for tick in tick_data:
+                unix_ts = tick.get("UNIX")
+                timestamp_ms = int(unix_ts) if unix_ts else 0
+                all_ticks.append({
+                    "tick": tick,
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "timestamp_ms": timestamp_ms
+                })
+        
+        # 按UNIX时间戳排序，时间早的先推送
+        all_ticks.sort(key=lambda x: x["timestamp_ms"])
+        logger.info(f"按时间戳排序完成: 总Tick数={len(all_ticks)}")
+        
+        # 3. 按时间顺序推送
         results: Dict[str, int] = {}
         
         if self.use_pipeline:
             # 使用 Pipeline 批量推送
             pipe = self.publisher._client.pipeline()
             
-            for market, exchange, code, symbol in stocks:
-                code_str = f"{code:06d}"
-                tick_data = tick_data_map.get(code_str)
-                
-                if not tick_data:
-                    tick_data = self._get_cached_empty_tick_data(date)
-                    logger.debug(f"未查到Tick数据，使用缓存空数据: {market}:{code}")
-                
-                count = 0
-                for tick in tick_data:
-                    snapshot = self._convert_tick_to_snapshot(tick, date, exchange, symbol)
-                    if snapshot:
-                        channel = snapshot.get_channel()
-                        message = SnapshotParser.to_json(snapshot)
-                        pipe.publish(channel, message)
-                        count += 1
-                
-                results[symbol] = count
+            for item in all_ticks:
+                snapshot = self._convert_tick_to_snapshot(
+                    item["tick"], date, item["exchange"], item["symbol"]
+                )
+                if snapshot:
+                    channel = snapshot.get_channel()
+                    message = SnapshotParser.to_json(snapshot)
+                    pipe.publish(channel, message)
+                    results[item["symbol"]] = results.get(item["symbol"], 0) + 1
             
             # 一次性执行所有 publish
             pipe.execute()
-            logger.info(f"Pipeline批量推送完成: 总股票数={len(results)}")
+            logger.info(f"Pipeline批量推送完成(按时间排序): 总股票数={len(results)}")
         else:
             # 逐条推送（兼容模式）
-            for market, exchange, code, symbol in stocks:
-                code_str = f"{code:06d}"
-                tick_data = tick_data_map.get(code_str)
-                
-                if not tick_data:
-                    tick_data = self._get_cached_empty_tick_data(date)
-                    logger.debug(f"未查到Tick数据，使用缓存空数据: {market}:{code}")
-                
-                count = 0
-                for tick in tick_data:
-                    snapshot = self._convert_tick_to_snapshot(tick, date, exchange, symbol)
-                    if snapshot:
-                        self.publisher.publish(snapshot)
-                        count += 1
-                
-                results[symbol] = count
+            for item in all_ticks:
+                snapshot = self._convert_tick_to_snapshot(
+                    item["tick"], date, item["exchange"], item["symbol"]
+                )
+                if snapshot:
+                    self.publisher.publish(snapshot)
+                    results[item["symbol"]] = results.get(item["symbol"], 0) + 1
             
-            logger.info(f"逐条推送完成: 总股票数={len(results)}")
+            logger.info(f"逐条推送完成(按时间排序): 总股票数={len(results)}")
         
         return results
     
