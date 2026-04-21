@@ -23,6 +23,7 @@ class SnapshotData(BaseModel):
     """行情快照消息结构"""
     type: str = Field(default="snapshot", description="消息类型")
     timestamp: int = Field(..., description="毫秒时间戳")
+    seqno: int = Field(default=0, description="行情序列号，从1开始累加，最后一笔为0表示推送完成")
     exchange: str = Field(..., description="交易所代码，如SSE、SZSE")
     symbol: str = Field(..., description="股票代码")
     data: MarketQuote = Field(..., description="行情数据")

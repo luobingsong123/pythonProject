@@ -69,14 +69,16 @@ class TickDataPublisher:
             logger.debug(f"查到 {len(tick_data)} 条Tick数据: {market}:{code}")
         
         count = 0
+        total = len(tick_data)
         
-        # 发布每条Tick数据
-        for tick in tick_data:
+        # 发布每条Tick数据，seqno从1累加，最后一笔为0
+        for idx, tick in enumerate(tick_data):
             snapshot = self._convert_tick_to_snapshot(
                 tick, date, exchange, symbol
             )
             
             if snapshot:
+                snapshot.seqno = 0 if idx == total - 1 else idx + 1
                 self.publisher.publish(snapshot)
                 count += 1
         
@@ -135,18 +137,21 @@ class TickDataPublisher:
         all_ticks.sort(key=lambda x: x["timestamp_ms"])
         logger.info(f"按时间戳排序完成: 总Tick数={len(all_ticks)}")
         
-        # 3. 按时间顺序推送
+        # 3. 按时间顺序推送，seqno从1开始累加，最后一笔为0表示推送完成
         results: Dict[str, int] = {}
+        total_ticks = len(all_ticks)
         
         if self.use_pipeline:
             # 使用 Pipeline 批量推送
             pipe = self.publisher._client.pipeline()
             
-            for item in all_ticks:
+            for idx, item in enumerate(all_ticks):
                 snapshot = self._convert_tick_to_snapshot(
                     item["tick"], date, item["exchange"], item["symbol"]
                 )
                 if snapshot:
+                    # 最后一笔seqno=0作为推送完成标记，其余从1递增
+                    snapshot.seqno = 0 if idx == total_ticks - 1 else idx + 1
                     channel = snapshot.get_channel()
                     message = SnapshotParser.to_json(snapshot)
                     pipe.publish(channel, message)
@@ -154,18 +159,20 @@ class TickDataPublisher:
             
             # 一次性执行所有 publish
             pipe.execute()
-            logger.info(f"Pipeline批量推送完成(按时间排序): 总股票数={len(results)}")
+            logger.info(f"Pipeline批量推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={total_ticks}")
         else:
             # 逐条推送（兼容模式）
-            for item in all_ticks:
+            for idx, item in enumerate(all_ticks):
                 snapshot = self._convert_tick_to_snapshot(
                     item["tick"], date, item["exchange"], item["symbol"]
                 )
                 if snapshot:
+                    # 最后一笔seqno=0作为推送完成标记，其余从1递增
+                    snapshot.seqno = 0 if idx == total_ticks - 1 else idx + 1
                     self.publisher.publish(snapshot)
                     results[item["symbol"]] = results.get(item["symbol"], 0) + 1
             
-            logger.info(f"逐条推送完成(按时间排序): 总股票数={len(results)}")
+            logger.info(f"逐条推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={total_ticks}")
         
         return results
     
