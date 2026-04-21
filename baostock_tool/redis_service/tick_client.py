@@ -218,7 +218,7 @@ class TickClient:
         self.tick_writer = csv.writer(self.tick_file, delimiter='|')
         # 写入表头
         self.tick_writer.writerow([
-            'timestamp', 'exchange', 'symbol', 'last_price',
+            'seqno', 'timestamp', 'exchange', 'symbol', 'last_price',
             'volume', 'amount', 'bid_price', 'bid_volume',
             'ask_price', 'ask_volume', 'date', 'time'
         ])
@@ -311,6 +311,7 @@ class TickClient:
 
                                     snap_data = snapshot.data
                                     self.tick_writer.writerow([
+                                        snapshot.seqno,
                                         snapshot.timestamp,
                                         snapshot.exchange,
                                         snapshot.symbol,
@@ -325,6 +326,12 @@ class TickClient:
                                         snap_data.timestamp
                                     ])
                                     self.received_count += 1
+
+                                    # seqno=0 表示推送完成
+                                    if snapshot.seqno == 0:
+                                        self.logger.info(f"收到推送完成标记(seqno=0)，tick数据接收完成: {self.received_count} 条")
+                                        self.receiving = False
+                                        break
 
                                     # 每1000条打印一次
                                     if self.received_count % 1000 == 0:
