@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 class TickDataPublisher:
     """Tick数据发布器"""
     
+    # 分批大小：每批处理的Tick数量，避免一次性处理过多数据
+    BATCH_SIZE = 5000
+    
     def __init__(
         self,
         query_service: Optional[StockQueryService] = None,
@@ -147,26 +150,37 @@ class TickDataPublisher:
         symbol_seq: Dict[str, int] = {}  # 每个证券的当前序号
         
         if self.use_pipeline:
-            # 使用 Pipeline 批量推送
-            pipe = self.publisher._client.pipeline()
+            # 分批处理：避免一次性堆积过多数据到 Pipeline
+            total_ticks = len(all_ticks)
             
-            for item in all_ticks:
-                snapshot = self._convert_tick_to_snapshot(
-                    item["tick"], date, item["exchange"], item["symbol"]
-                )
-                if snapshot:
-                    symbol = item["symbol"]
-                    symbol_seq[symbol] = symbol_seq.get(symbol, 0) + 1
-                    # 该证券最后一笔seqno=0，其余从1递增
-                    snapshot.seqno = 0 if symbol_seq[symbol] == symbol_total[symbol] else symbol_seq[symbol]
-                    channel = snapshot.get_channel()
-                    message = SnapshotParser.to_json(snapshot)
-                    pipe.publish(channel, message)
-                    results[symbol] = results.get(symbol, 0) + 1
+            for batch_start in range(0, total_ticks, self.BATCH_SIZE):
+                batch_end = min(batch_start + self.BATCH_SIZE, total_ticks)
+                batch = all_ticks[batch_start:batch_end]
+                
+                # 每批使用独立的 Pipeline
+                pipe = self.publisher._client.pipeline()
+                
+                for item in batch:
+                    snapshot = self._convert_tick_to_snapshot(
+                        item["tick"], date, item["exchange"], item["symbol"]
+                    )
+                    if snapshot:
+                        symbol = item["symbol"]
+                        symbol_seq[symbol] = symbol_seq.get(symbol, 0) + 1
+                        # 该证券最后一笔seqno=0，其余从1递增
+                        snapshot.seqno = 0 if symbol_seq[symbol] == symbol_total[symbol] else symbol_seq[symbol]
+                        channel = snapshot.get_channel()
+                        message = SnapshotParser.to_json(snapshot)
+                        pipe.publish(channel, message)
+                        results[symbol] = results.get(symbol, 0) + 1
+                
+                # 执行当前批次
+                pipe.execute()
+                logger.debug(f"Pipeline批次推送完成: 批次={batch_start//self.BATCH_SIZE + 1}, "
+                            f"进度={batch_end}/{total_ticks}")
             
-            # 一次性执行所有 publish
-            pipe.execute()
-            logger.info(f"Pipeline批量推送完成(按时间排序): 总股票数={len(results)}, 总Tick数={len(all_ticks)}")
+            logger.info(f"Pipeline批量推送完成(分{len(range(0, total_ticks, self.BATCH_SIZE))}批): "
+                        f"总股票数={len(results)}, 总Tick数={total_ticks}")
         else:
             # 逐条推送（兼容模式）
             for item in all_ticks:
