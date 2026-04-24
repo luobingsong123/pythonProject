@@ -3,6 +3,7 @@
 """
 
 from backtest.engine import BacktestEngine
+from backtest.clickhouse_publisher import ClickHousePublisher
 from backtest.publisher import TickDataPublisher
 
-__all__ = ["BacktestEngine", "TickDataPublisher"]
+__all__ = ["BacktestEngine", "TickDataPublisher", "ClickHousePublisher"]

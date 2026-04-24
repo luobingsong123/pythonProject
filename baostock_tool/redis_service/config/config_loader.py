@@ -14,6 +14,7 @@ from .settings import (
     Settings,
     RedisConfig,
     DatabaseConfig,
+    ClickHouseConfig,
     MarketConfig,
     SelectionConfig,
     BacktestConfig,
@@ -56,6 +57,7 @@ class ConfigLoader:
         return Settings(
             redis=self._load_redis_config(),
             database=self._load_database_config(),
+            clickhouse=self._load_clickhouse_config(),
             market=self._load_market_config(),
             selection=self._load_selection_config(),
             backtest=self._load_backtest_config(),
@@ -103,6 +105,18 @@ class ConfigLoader:
             database=self.config.get(section, 'database', fallback=''),
             charset=self.config.get(section, 'charset', fallback='utf8mb4'),
             pool_size=self.config.getint(section, 'pool_size', fallback=5)
+        )
+
+    def _load_clickhouse_config(self) -> ClickHouseConfig:
+        """加载 ClickHouse 配置"""
+        section = 'clickhouse'
+
+        return ClickHouseConfig(
+            host=self.config.get(section, 'host', fallback='localhost'),
+            port=self.config.getint(section, 'port', fallback=9000),
+            user=self.config.get(section, 'user', fallback='default'),
+            password=self.config.get(section, 'password', fallback=''),
+            database=self.config.get(section, 'database', fallback='quant_trader')
         )
     
     def _load_market_config(self) -> MarketConfig:

@@ -53,6 +53,15 @@ class DatabaseConfig(BaseModel):
     pool_size: int = 5
 
 
+class ClickHouseConfig(BaseModel):
+    """ClickHouse连接配置"""
+    host: str = "localhost"
+    port: int = 9000
+    user: str = "default"
+    password: str = ""
+    database: str = "quant_trader"
+
+
 class MarketConfig(BaseModel):
     """行情相关配置"""
     # Pub/Sub通道前缀
@@ -103,6 +112,7 @@ class Settings(BaseModel):
     """全局配置"""
     redis: RedisConfig = RedisConfig()
     database: DatabaseConfig = DatabaseConfig()
+    clickhouse: ClickHouseConfig = ClickHouseConfig()
     market: MarketConfig = MarketConfig()
     selection: SelectionConfig = SelectionConfig()
     backtest: BacktestConfig = BacktestConfig()

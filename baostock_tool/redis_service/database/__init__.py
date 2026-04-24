@@ -3,12 +3,14 @@
 """
 
 from database.connection import DatabasePool, get_db_connection
+from database.clickhouse_queries import ClickHouseQueryService
 from database.queries import StockQueryService
 from database.selection_repository import SelectionRepository
 
 __all__ = [
     "DatabasePool",
     "get_db_connection",
+    "ClickHouseQueryService",
     "StockQueryService",
     "SelectionRepository"
 ]
