@@ -2,6 +2,7 @@
 
 import json
 import os
+import queue
 import socket
 import sys
 import threading
@@ -20,6 +21,48 @@ from baostock_tool.redis_service.tick_server import TickRequest
 from baostock_tool.redis_service.utils.log_manager import get_logger, setup_logging
 
 
+class ClickHouseConnectionPool:
+    """ClickHouse 连接池，为每个线程提供独立的 Client 实例。"""
+
+    def __init__(self, ch_config: Dict[str, Any], pool_size: int = 5):
+        self._ch_config = ch_config
+        self._pool: queue.Queue[Client] = queue.Queue(maxsize=pool_size)
+        self._pool_size = pool_size
+        self._lock = threading.Lock()
+        self._created = 0
+
+    def _create_client(self) -> Client:
+        client = Client(**self._ch_config)
+        client.execute("SELECT 1")
+        return client
+
+    def get(self) -> Client:
+        try:
+            return self._pool.get_nowait()
+        except queue.Empty:
+            pass
+        with self._lock:
+            if self._created < self._pool_size:
+                client = self._create_client()
+                self._created += 1
+                return client
+        return self._pool.get()
+
+    def put(self, client: Client):
+        try:
+            self._pool.put_nowait(client)
+        except queue.Full:
+            client.disconnect()
+
+    def close_all(self):
+        while not self._pool.empty():
+            try:
+                client = self._pool.get_nowait()
+                client.disconnect()
+            except queue.Empty:
+                break
+
+
 class ClickHouseServer:
     """ClickHouse 数据推送服务器。"""
 
@@ -29,19 +72,16 @@ class ClickHouseServer:
         self.server_socket: Optional[socket.socket] = None
         self.running = False
         self.logger = get_logger("clickhouse_server")
-        self.client: Optional[Client] = None
-        self.publisher: Optional[ClickHousePublisher] = None
+        self._conn_pool: Optional[ClickHouseConnectionPool] = None
 
     def initialize(self, ch_config: Dict[str, Any]):
         try:
-            self.client = Client(**ch_config)
-            self.client.execute("SELECT 1")
-            query_service = ClickHouseQueryService(self.client)
-            self.publisher = ClickHousePublisher(
-                query_service=query_service,
-                use_pipeline=settings.backtest.use_pipeline,
-            )
-            self.logger.info("ClickHouse 发布器初始化成功")
+            self._conn_pool = ClickHouseConnectionPool(ch_config, pool_size=5)
+            client = self._conn_pool.get()
+            try:
+                self.logger.info("ClickHouse 连接池初始化成功")
+            finally:
+                self._conn_pool.put(client)
         except Exception as exc:
             self.logger.error("ClickHouse 初始化失败: %s", exc)
             raise
@@ -74,10 +114,8 @@ class ClickHouseServer:
         self.running = False
         if self.server_socket:
             self.server_socket.close()
-        if self.publisher:
-            self.publisher.close()
-        if self.client:
-            self.client.disconnect()
+        if self._conn_pool:
+            self._conn_pool.close_all()
         self.logger.info("ClickHouse 服务器已停止")
 
     def _handle_client(self, client_socket: socket.socket, client_address: Tuple[str, int]):
@@ -125,12 +163,21 @@ class ClickHouseServer:
                 return
 
             all_results = {}
-            for date in request.date_list:
-                if request.sub_type == 1:
-                    results = self.publisher.publish_snapshot_batch(date, stocks)
-                else:
-                    results = self.publisher.publish_tick_batch(date, stocks, sub_type=request.sub_type)
-                all_results[date] = results
+            ch_client = self._conn_pool.get()
+            try:
+                query_service = ClickHouseQueryService(ch_client)
+                publisher = ClickHousePublisher(
+                    query_service=query_service,
+                    use_pipeline=settings.backtest.use_pipeline,
+                )
+                for date in request.date_list:
+                    if request.sub_type == 1:
+                        results = publisher.publish_snapshot_batch(date, stocks)
+                    else:
+                        results = publisher.publish_tick_batch(date, stocks, sub_type=request.sub_type)
+                    all_results[date] = results
+            finally:
+                self._conn_pool.put(ch_client)
 
             response = {
                 "success": True,
@@ -149,7 +196,10 @@ class ClickHouseServer:
             self.logger.info("请求处理完成: %s, sub_type=%s", client_address, request.sub_type)
         except Exception as exc:
             self.logger.error("处理客户端错误: %s", exc)
-            self._send_response(client_socket, self._error_response(f"处理请求时发生错误: {exc}"))
+            try:
+                self._send_response(client_socket, self._error_response(f"处理请求时发生错误: {exc}"))
+            except Exception:
+                pass
         finally:
             try:
                 client_socket.close()
