@@ -6,8 +6,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config.settings import settings, BacktestConfig
-from backtest.engine import BacktestEngine
+from baostock_tool.redis_service.config.settings import settings, BacktestConfig
+from baostock_tool.redis_service.backtest.engine import BacktestEngine
 
 
 def demo_with_strategy():

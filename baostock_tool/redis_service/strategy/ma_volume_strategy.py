@@ -10,10 +10,10 @@
 import math
 import logging
 from typing import List, Dict, Any, Optional
-from strategy.base import BaseStrategy, StrategyResult
-from database.queries import StockQueryService
+from baostock_tool.redis_service.strategy.base import BaseStrategy, StrategyResult
+from baostock_tool.redis_service.database.queries import StockQueryService
 from datetime import datetime, timedelta
-from database.connection import get_db_connection, release_db_connection
+from baostock_tool.redis_service.database.connection import get_db_connection, release_db_connection
 
 logger = logging.getLogger(__name__)
 

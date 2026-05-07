@@ -6,8 +6,8 @@ import math
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
-from database.connection import DatabasePool, get_db_connection
-from config.settings import settings
+from baostock_tool.redis_service.database.connection import DatabasePool, get_db_connection
+from baostock_tool.redis_service.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

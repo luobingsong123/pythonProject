@@ -3,7 +3,7 @@
 """
 
 import time
-from market.subscriber import SnapshotSubscriber
+from baostock_tool.redis_service.market.subscriber import SnapshotSubscriber
 
 
 def simple_subscribe():

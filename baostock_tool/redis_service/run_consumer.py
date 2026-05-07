@@ -19,13 +19,13 @@ from typing import List, Dict, Any
 import traceback
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config.settings import settings
-from config.config_loader import load_config, update_global_settings
-from selection.reader import SelectionReader
-from market.subscriber import SnapshotSubscriber
-from models.snapshot import SnapshotData
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.config.config_loader import load_config, update_global_settings
+from baostock_tool.redis_service.selection.reader import SelectionReader
+from baostock_tool.redis_service.market.subscriber import SnapshotSubscriber
+from baostock_tool.redis_service.models.snapshot import SnapshotData
 # 从配置文件加载配置
-from utils.log_manager import setup_logging, get_logger
+from baostock_tool.redis_service.utils.log_manager import setup_logging, get_logger
 
 class FileConsumer:
     """文件消费者 - 将数据写入文件"""

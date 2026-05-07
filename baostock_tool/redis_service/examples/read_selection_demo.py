@@ -2,7 +2,7 @@
 股池数据读取示例
 """
 
-from selection.reader import SelectionReader
+from baostock_tool.redis_service.selection.reader import SelectionReader
 
 
 def main():

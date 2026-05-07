@@ -5,8 +5,8 @@
 import redis
 import threading
 from typing import Optional, Callable, Generator, Any
-from core.base_service import BaseRedisService
-from models.snapshot import SnapshotData, SnapshotParser
+from baostock_tool.redis_service.core.base_service import BaseRedisService
+from baostock_tool.redis_service.models.snapshot import SnapshotData, SnapshotParser
 
 
 class SnapshotSubscriber(BaseRedisService):

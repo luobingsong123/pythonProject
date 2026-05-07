@@ -5,9 +5,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import redis
 
-from core.base_service import BaseRedisService
-from database.clickhouse_queries import ClickHouseQueryService
-from models.clickhouse_models import (
+from baostock_tool.redis_service.core.base_service import BaseRedisService
+from baostock_tool.redis_service.database.clickhouse_queries import ClickHouseQueryService
+from baostock_tool.redis_service.models.clickhouse_models import (
     EXCHANGE_ID_TO_EXCHANGE,
     MARKET_TO_EXCHANGE_ID,
     SnapshotMessage,

@@ -6,11 +6,11 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config.config_loader import update_global_settings
-from selection.writer import SelectionWriter
-from selection.reader import SelectionReader
-from models.stock_selection import StockInfo, BasicInfo
-from utils.serializer import TimestampUtil
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.selection.writer import SelectionWriter
+from baostock_tool.redis_service.selection.reader import SelectionReader
+from baostock_tool.redis_service.models.stock_selection import StockInfo, BasicInfo
+from baostock_tool.redis_service.utils.serializer import TimestampUtil
 
 # 加载配置
 update_global_settings('config/config.ini')

@@ -7,8 +7,8 @@
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from database.connection import DatabasePool, get_db_connection
-from models.stock_selection import SelectionMessage, StockInfo
+from baostock_tool.redis_service.database.connection import DatabasePool, get_db_connection
+from baostock_tool.redis_service.models.stock_selection import SelectionMessage, StockInfo
 from contextlib import contextmanager
 from .connection import get_db_connection, release_db_connection
 

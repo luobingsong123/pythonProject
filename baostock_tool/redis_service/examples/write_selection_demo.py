@@ -3,8 +3,8 @@
 """
 
 import time
-from selection.writer import SelectionWriter
-from models.stock_selection import (
+from baostock_tool.redis_service.selection.writer import SelectionWriter
+from baostock_tool.redis_service.models.stock_selection import (
     SelectionMessage,
     StockInfo,
     BasicInfo,

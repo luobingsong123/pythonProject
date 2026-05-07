@@ -4,16 +4,16 @@
 
 import logging
 from typing import List, Optional, Dict, Any
-from database.queries import StockQueryService
-from database.selection_repository import SelectionRepository
-from strategy.base import BaseStrategy, StrategyResult
-from strategy.ma_breakthrough import MABreakthroughStrategy
-from strategy.ma_volume_strategy import MAVolumeStrategy
-from models.stock_selection import (
+from baostock_tool.redis_service.database.queries import StockQueryService
+from baostock_tool.redis_service.database.selection_repository import SelectionRepository
+from baostock_tool.redis_service.strategy.base import BaseStrategy, StrategyResult
+from baostock_tool.redis_service.strategy.ma_breakthrough import MABreakthroughStrategy
+from baostock_tool.redis_service.strategy.ma_volume_strategy import MAVolumeStrategy
+from baostock_tool.redis_service.models.stock_selection import (
     StockInfo, BasicInfo, MinuteVolume, TechnicalIndicators, FundamentalData
 )
-from models.stock_selection import SelectionMessage
-from utils.serializer import TimestampUtil
+from baostock_tool.redis_service.models.stock_selection import SelectionMessage
+from baostock_tool.redis_service.utils.serializer import TimestampUtil
 
 logger = logging.getLogger(__name__)
 

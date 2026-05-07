@@ -15,12 +15,12 @@ from datetime import datetime
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config.settings import settings
-from config.config_loader import update_global_settings
-from database.queries import StockQueryService
-from database.connection import init_db_pool
-from backtest.publisher import TickDataPublisher
-from utils.log_manager import get_logger
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.database.queries import StockQueryService
+from baostock_tool.redis_service.database.connection import init_db_pool
+from baostock_tool.redis_service.backtest.publisher import TickDataPublisher
+from baostock_tool.redis_service.utils.log_manager import get_logger
 
 
 class TickRequest:
@@ -386,7 +386,7 @@ class TickServer:
 
 def main():
     """主函数"""
-    from utils.log_manager import setup_logging
+    from baostock_tool.redis_service.utils.log_manager import setup_logging
 
     # 配置文件路径
     config_path = 'config/config.ini'

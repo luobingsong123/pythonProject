@@ -5,8 +5,8 @@ Redis基础服务类
 import redis
 from abc import ABC, abstractmethod
 from typing import Optional
-from core.connection import RedisPool, get_redis_client
-from config.settings import Settings
+from baostock_tool.redis_service.core.connection import RedisPool, get_redis_client
+from baostock_tool.redis_service.config.settings import Settings
 
 
 class BaseRedisService(ABC):

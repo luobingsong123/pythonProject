@@ -2,10 +2,10 @@
 策略模块 - 选股策略实现
 """
 
-from strategy.base import BaseStrategy, StrategyResult
-from strategy.ma_breakthrough import MABreakthroughStrategy
-from strategy.ma_volume_strategy import MAVolumeStrategy
-from strategy.selector import StockSelector
+from baostock_tool.redis_service.strategy.base import BaseStrategy, StrategyResult
+from baostock_tool.redis_service.strategy.ma_breakthrough import MABreakthroughStrategy
+from baostock_tool.redis_service.strategy.ma_volume_strategy import MAVolumeStrategy
+from baostock_tool.redis_service.strategy.selector import StockSelector
 
 __all__ = [
     "BaseStrategy",

@@ -17,12 +17,12 @@ from datetime import datetime, timedelta
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import argparse
-from utils.log_manager import setup_logging
-from config.settings import settings
-from config.config_loader import update_global_settings
-from selection.reader import SelectionReader
-from market.subscriber import SnapshotSubscriber
-from utils.log_manager import get_logger
+from baostock_tool.redis_service.utils.log_manager import setup_logging
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.selection.reader import SelectionReader
+from baostock_tool.redis_service.market.subscriber import SnapshotSubscriber
+from baostock_tool.redis_service.utils.log_manager import get_logger
 import traceback
 
 class TickClient:

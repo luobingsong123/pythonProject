@@ -10,7 +10,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-from config.settings import settings
+from baostock_tool.redis_service.config.settings import settings
 
 
 def setup_logging(

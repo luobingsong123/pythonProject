@@ -11,10 +11,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config.settings import settings
-from database.connection import init_db_pool
-from strategy.selector import StockSelector
-from strategy.ma_volume_strategy import MAVolumeStrategy
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.database.connection import init_db_pool
+from baostock_tool.redis_service.strategy.selector import StockSelector
+from baostock_tool.redis_service.strategy.ma_volume_strategy import MAVolumeStrategy
 
 
 def demo_ma_volume_strategy():

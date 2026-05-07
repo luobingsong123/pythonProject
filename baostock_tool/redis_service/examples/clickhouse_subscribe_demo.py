@@ -7,8 +7,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from clickhouse_client import ClickHouseClient
-from config.config_loader import update_global_settings
-from utils.log_manager import get_logger, setup_logging
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.utils.log_manager import get_logger, setup_logging
 
 
 def main():

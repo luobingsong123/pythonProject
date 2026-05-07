@@ -12,12 +12,12 @@ from clickhouse_driver import Client
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from backtest.clickhouse_publisher import ClickHousePublisher
-from database.clickhouse_queries import ClickHouseQueryService
-from config.config_loader import update_global_settings
-from config.settings import settings
-from tick_server import TickRequest
-from utils.log_manager import get_logger, setup_logging
+from baostock_tool.redis_service.backtest.clickhouse_publisher import ClickHousePublisher
+from baostock_tool.redis_service.database.clickhouse_queries import ClickHouseQueryService
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.tick_server import TickRequest
+from baostock_tool.redis_service.utils.log_manager import get_logger, setup_logging
 
 
 class ClickHouseServer:

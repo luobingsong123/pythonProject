@@ -11,18 +11,18 @@ import os
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config.settings import settings
-from config.config_loader import update_global_settings
-from database.connection import DatabasePool, init_db_pool, close_db_pool
-from database.queries import StockQueryService
-from database.selection_repository import SelectionRepository
-from selection.writer import SelectionWriter
-from strategy.selector import StockSelector
-from models.stock_selection import SelectionMessage
-from utils.serializer import TimestampUtil
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.database.connection import DatabasePool, init_db_pool, close_db_pool
+from baostock_tool.redis_service.database.queries import StockQueryService
+from baostock_tool.redis_service.database.selection_repository import SelectionRepository
+from baostock_tool.redis_service.selection.writer import SelectionWriter
+from baostock_tool.redis_service.strategy.selector import StockSelector
+from baostock_tool.redis_service.models.stock_selection import SelectionMessage
+from baostock_tool.redis_service.utils.serializer import TimestampUtil
 from typing import Optional, List, Dict, Any
-from core.connection import get_redis_client
-from utils.log_manager import setup_logging, get_logger
+from baostock_tool.redis_service.core.connection import get_redis_client
+from baostock_tool.redis_service.utils.log_manager import setup_logging, get_logger
 import datetime
 
 def check_redis_connection() -> bool:

@@ -4,10 +4,10 @@
 
 import redis
 from typing import Optional
-from core.base_service import BaseRedisService
-from models.snapshot import SnapshotData, SnapshotParser
-from models.snapshot import MarketQuote
-from utils.serializer import TimestampUtil
+from baostock_tool.redis_service.core.base_service import BaseRedisService
+from baostock_tool.redis_service.models.snapshot import SnapshotData, SnapshotParser
+from baostock_tool.redis_service.models.snapshot import MarketQuote
+from baostock_tool.redis_service.utils.serializer import TimestampUtil
 
 class SnapshotPublisher(BaseRedisService):
     """行情快照发布器"""

@@ -4,9 +4,9 @@
 
 import redis
 from typing import Optional, List, Dict, Any
-from core.base_service import BaseRedisService
-from models.stock_selection import SelectionMessage, SelectionParser
-from config.settings import settings
+from baostock_tool.redis_service.core.base_service import BaseRedisService
+from baostock_tool.redis_service.models.stock_selection import SelectionMessage, SelectionParser
+from baostock_tool.redis_service.config.settings import settings
 
 
 class SelectionReader(BaseRedisService):

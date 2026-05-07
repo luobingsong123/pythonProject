@@ -4,7 +4,7 @@ Redis连接池管理模块
 
 import redis
 from typing import Optional
-from config.settings import RedisConfig, settings
+from baostock_tool.redis_service.config.settings import RedisConfig, settings
 
 
 class RedisPool:

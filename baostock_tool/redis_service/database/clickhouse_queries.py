@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from clickhouse_driver import Client
 
-from models.clickhouse_models import (
+from baostock_tool.redis_service.models.clickhouse_models import (
     EXCHANGE_ID_TO_EXCHANGE,
     MARKET_TO_EXCHANGE_ID,
     SNAPSHOT_PUSH_COLUMNS,

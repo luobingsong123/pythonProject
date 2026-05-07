@@ -14,10 +14,10 @@ import json
 import time
 from typing import List, Dict, Any
 
-from selection.reader import SelectionReader
-from market.subscriber import SnapshotSubscriber
-from models.snapshot import SnapshotData
-from models.stock_selection import SelectionMessage
+from baostock_tool.redis_service.selection.reader import SelectionReader
+from baostock_tool.redis_service.market.subscriber import SnapshotSubscriber
+from baostock_tool.redis_service.models.snapshot import SnapshotData
+from baostock_tool.redis_service.models.stock_selection import SelectionMessage
 
 
 class StockConsumer:

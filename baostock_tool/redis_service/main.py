@@ -11,9 +11,9 @@ import os
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config.settings import settings
-from config.config_loader import update_global_settings
-from backtest.engine import BacktestEngine
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.backtest.engine import BacktestEngine
 
 
 def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = True):
@@ -25,7 +25,7 @@ def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = 
         end_date: 回测结束日期
         use_strategy: 是否使用选股策略
     """
-    from utils.log_manager import get_logger
+    from baostock_tool.redis_service.utils.log_manager import get_logger
     logger = get_logger("main")
     
     logger.info("="*60)
@@ -33,7 +33,7 @@ def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = 
     logger.info("="*60)
     
     # 创建回测配置
-    from config.settings import BacktestConfig
+    from baostock_tool.redis_service.config.settings import BacktestConfig
     config = BacktestConfig(
         start_date=start_date,
         end_date=end_date,
@@ -69,7 +69,7 @@ def start_backtest_service(start_date: str, end_date: str, use_strategy: bool = 
 
 def main():
     """主函数"""
-    from utils.log_manager import setup_logging, get_logger
+    from baostock_tool.redis_service.utils.log_manager import setup_logging, get_logger
     
     # 配置文件路径
     config_path = 'config/config.ini'

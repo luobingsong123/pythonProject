@@ -16,12 +16,12 @@ import redis
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config.config_loader import update_global_settings
-from config.settings import settings
-from core.connection import get_redis_client
-from models.clickhouse_models import ClickHouseMessageParser, SnapshotMessage, TickMessage
-from selection.reader import SelectionReader
-from utils.log_manager import get_logger, setup_logging
+from baostock_tool.redis_service.config.config_loader import update_global_settings
+from baostock_tool.redis_service.config.settings import settings
+from baostock_tool.redis_service.core.connection import get_redis_client
+from baostock_tool.redis_service.models.clickhouse_models import ClickHouseMessageParser, SnapshotMessage, TickMessage
+from baostock_tool.redis_service.selection.reader import SelectionReader
+from baostock_tool.redis_service.utils.log_manager import get_logger, setup_logging
 
 
 class ClickHouseClient:

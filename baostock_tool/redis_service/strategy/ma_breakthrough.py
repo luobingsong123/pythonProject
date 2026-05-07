@@ -3,8 +3,8 @@
 """
 
 from typing import List, Dict, Any, Optional
-from strategy.base import BaseStrategy, StrategyResult
-from database.queries import StockQueryService
+from baostock_tool.redis_service.strategy.base import BaseStrategy, StrategyResult
+from baostock_tool.redis_service.database.queries import StockQueryService
 
 
 class MABreakthroughStrategy(BaseStrategy):

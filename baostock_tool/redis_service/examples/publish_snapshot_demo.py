@@ -3,8 +3,8 @@
 """
 
 import time
-from market.publisher import SnapshotPublisher
-from models.snapshot import SnapshotData, MarketQuote
+from baostock_tool.redis_service.market.publisher import SnapshotPublisher
+from baostock_tool.redis_service.models.snapshot import SnapshotData, MarketQuote
 
 
 def main():
