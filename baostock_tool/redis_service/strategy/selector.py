@@ -67,8 +67,10 @@ class StockSelector:
         Returns:
             str: 前一个交易日 YYYYMMDD
         """
-        # 获取交易日列表（往前取足够多的天数）
-        trade_dates = self.query_service.get_trading_dates("20000101", date)
+        # 只需往前取少量交易日即可找到T-1，无需从2000年查起
+        from datetime import datetime, timedelta
+        lookback = (datetime.strptime(date, "%Y%m%d") - timedelta(days=30)).strftime("%Y%m%d")
+        trade_dates = self.query_service.get_trading_dates(lookback, date)
         if not trade_dates:
             logger.warning(f"无法获取交易日历，使用日期减1: {date}")
             from datetime import datetime, timedelta
