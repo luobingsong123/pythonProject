@@ -119,6 +119,7 @@ class ClickHouseServer:
         self.logger.info("ClickHouse 服务器已停止")
 
     def _handle_client(self, client_socket: socket.socket, client_address: Tuple[str, int]):
+        self.logger.info("客户端已连接: %s", client_address)
         try:
             data = b""
             while True:
@@ -130,6 +131,7 @@ class ClickHouseServer:
                     break
 
             if not data:
+                self.logger.info("客户端 %s 发送空数据，断开连接", client_address)
                 return
 
             request = TickRequest(data.decode("utf-8").strip())
@@ -171,6 +173,10 @@ class ClickHouseServer:
                     use_pipeline=settings.backtest.use_pipeline,
                 )
                 for date in request.date_list:
+                    self.logger.info(
+                        "正在查询 ClickHouse: %s, sub_type=%s, 股票数=%s, 客户端=%s",
+                        date, request.sub_type, len(stocks), client_address,
+                    )
                     if request.sub_type == 1:
                         results = publisher.publish_snapshot_batch(date, stocks)
                     else:
@@ -192,7 +198,10 @@ class ClickHouseServer:
                     for date, result in all_results.items()
                 ],
             }
-            self._send_response(client_socket, response)
+            try:
+                self._send_response(client_socket, response)
+            except (ConnectionResetError, BrokenPipeError, OSError):
+                self.logger.info("客户端 %s 已提前关闭连接（数据已推送完成）", client_address)
             self.logger.info("请求处理完成: %s, sub_type=%s", client_address, request.sub_type)
         except Exception as exc:
             self.logger.error("处理客户端错误: %s", exc)
