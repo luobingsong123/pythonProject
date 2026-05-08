@@ -135,6 +135,7 @@ class ClickHouseServer:
                 return
 
             request = TickRequest(data.decode("utf-8").strip())
+            self.logger.info("收到订阅请求: %s, 客户端=%s", data.decode("utf-8").strip(), client_address)
             if not request.valid:
                 self._send_response(client_socket, self._error_response(request.error))
                 return
