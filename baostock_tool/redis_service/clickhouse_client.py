@@ -42,6 +42,7 @@ class ClickHouseClient:
         self._msg_queue: queue.Queue = queue.Queue()
         self.data_file = None
         self.data_writer = None
+        self.raw_file = None
         self.pubsub = None
 
     @staticmethod
@@ -160,6 +161,11 @@ class ClickHouseClient:
         self.data_writer = csv.writer(self.data_file, delimiter="|")
         self._write_header(sub_type)
 
+        raw_file_path = os.path.splitext(data_file_path)[0] + "_raw.jsonl"
+        self._ensure_parent_dir(raw_file_path)
+        self.raw_file = open(raw_file_path, "w", encoding="utf-8")
+        self.logger.info(f"原始数据文件: {raw_file_path}")
+
         stock_set = {f"{stock['exchange']}:{stock['symbol']}" for stock in stocks}
         self.receive_thread = threading.Thread(
             target=self._receive_loop,
@@ -258,6 +264,13 @@ class ClickHouseClient:
                 break
 
             channel_str, data_str = item
+
+            # 写入原始数据（channel + data）
+            try:
+                raw_line = json.dumps({"channel": channel_str, "data": data_str}, ensure_ascii=False)
+                self.raw_file.write(raw_line + "\n")
+            except Exception:
+                pass
 
             try:
                 channel_info = ClickHouseMessageParser.parse_channel(channel_str)
@@ -368,6 +381,9 @@ class ClickHouseClient:
             self.data_file.close()
             self.data_file = None
             self.data_writer = None
+        if self.raw_file:
+            self.raw_file.close()
+            self.raw_file = None
 
     def close(self):
         self._stop_receiving()
