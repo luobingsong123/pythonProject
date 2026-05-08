@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import queue
 import socket
 import sys
 import threading
@@ -37,6 +38,8 @@ class ClickHouseClient:
         self.subscribed = False
         self.received_count = 0
         self.receive_thread: Optional[threading.Thread] = None
+        self.write_thread: Optional[threading.Thread] = None
+        self._msg_queue: queue.Queue = queue.Queue()
         self.data_file = None
         self.data_writer = None
         self.pubsub = None
@@ -150,6 +153,7 @@ class ClickHouseClient:
         self.receiving = True
         self.subscribed = False
         self.received_count = 0
+        self._msg_queue = queue.Queue()
 
         self._ensure_parent_dir(data_file_path)
         self.data_file = open(data_file_path, "w", encoding="utf-8", newline="")
@@ -162,7 +166,12 @@ class ClickHouseClient:
             args=(sub_type, stock_set),
             daemon=True,
         )
+        self.write_thread = threading.Thread(
+            target=self._write_loop,
+            daemon=True,
+        )
         self.receive_thread.start()
+        self.write_thread.start()
 
         for _ in range(10):
             if self.subscribed:
@@ -187,8 +196,8 @@ class ClickHouseClient:
         ])
 
     def _receive_loop(self, sub_type: int, stock_set: Set[str]):
+        """接收线程：只从 Redis 取消息入队列，不做解析和写文件。"""
         pattern = "market:snapshot:*" if sub_type == 1 else "market:tick:*"
-        finished_stocks: Set[str] = set()
 
         try:
             self.pubsub = self.redis_client.pubsub()
@@ -206,30 +215,23 @@ class ClickHouseClient:
                     if message["type"] != "pmessage":
                         continue
 
-                    channel_info = ClickHouseMessageParser.parse_channel(message["channel"])
-                    key = f"{channel_info['exchange']}:{channel_info['symbol']}"
-                    if key not in stock_set:
-                        continue
-
-                    parsed = ClickHouseMessageParser.parse_message(message["data"])
-                    self._write_message(parsed)
-                    self.received_count += 1
-
-                    if parsed.seqno == 0:
-                        finished_stocks.add(key)
-                        self.logger.info(f"证券 {key} 推送完成(seqno=0), 已完成: {len(finished_stocks)}/{len(stock_set)}")
-                        if finished_stocks >= stock_set:
-                            self.logger.info(f"所有证券推送完成，数据接收完成: {self.received_count} 条")
-                            self.receiving = False
-                            break
+                    channel_str = message["channel"]
+                    data_str = message["data"]
+                    self._msg_queue.put((channel_str, data_str))
                 except redis.ConnectionError:
                     if not self.receiving:
                         break
+                    self.logger.warning("Redis 连接中断，尝试重新订阅")
+                    try:
+                        self.pubsub.psubscribe(pattern)
+                    except Exception:
+                        pass
                     continue
         except Exception as exc:
             self.logger.error(f"接收数据异常: {exc}")
         finally:
-            self.receiving = False
+            # 放入哨兵，通知写线程结束
+            self._msg_queue.put(None)
             if self.pubsub:
                 try:
                     self.pubsub.punsubscribe()
@@ -237,6 +239,48 @@ class ClickHouseClient:
                 except Exception:
                     pass
                 self.pubsub = None
+
+    def _write_loop(self):
+        """写线程：从队列取消息，解析并写入 CSV。"""
+        finished_stocks: Set[str] = set()
+        stock_count: Dict[str, int] = {}
+
+        while True:
+            try:
+                item = self._msg_queue.get(timeout=1)
+            except queue.Empty:
+                if not self.receiving:
+                    break
+                continue
+
+            # 哨兵：接收线程已结束
+            if item is None:
+                break
+
+            channel_str, data_str = item
+
+            try:
+                channel_info = ClickHouseMessageParser.parse_channel(channel_str)
+                key = f"{channel_info['exchange']}:{channel_info['symbol']}"
+
+                parsed = ClickHouseMessageParser.parse_message(data_str)
+                self._write_message(parsed)
+                self.received_count += 1
+
+                stock_count[key] = stock_count.get(key, 0) + 1
+
+                if parsed.seqno == 0:
+                    finished_stocks.add(key)
+                    self.logger.info(
+                        f"证券 {key} 推送完成(seqno=0), 已完成: {len(finished_stocks)}/{len(stock_count)}"
+                    )
+            except Exception as exc:
+                self.logger.error(f"解析/写入消息异常: {exc}")
+
+        if stock_count:
+            self.logger.info(
+                f"写线程结束, 共写入 {self.received_count} 条, 覆盖 {len(stock_count)} 只证券"
+            )
 
     def _write_message(self, message: Any):
         if isinstance(message, SnapshotMessage):
@@ -318,6 +362,8 @@ class ClickHouseClient:
                 pass
         if self.receive_thread and self.receive_thread.is_alive():
             self.receive_thread.join(timeout=5)
+        if self.write_thread and self.write_thread.is_alive():
+            self.write_thread.join(timeout=10)
         if self.data_file:
             self.data_file.close()
             self.data_file = None
