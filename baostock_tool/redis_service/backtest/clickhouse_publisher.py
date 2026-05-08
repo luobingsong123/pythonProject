@@ -1,6 +1,7 @@
 """ClickHouse 数据发布器。"""
 
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import redis
@@ -107,6 +108,7 @@ class ClickHousePublisher(BaseRedisService):
                     pipe.publish(message.get_channel(), message.model_dump_json())
                     results[message.symbol] = results.get(message.symbol, 0) + 1
                 pipe.execute()
+                time.sleep(0.01)
         else:
             for message in messages:
                 self._client.publish(message.get_channel(), message.model_dump_json())
