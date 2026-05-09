@@ -165,7 +165,7 @@ class ClickHouseServer:
                 self._send_response(client_socket, self._error_response("未提供有效的股票代码"))
                 return
 
-            all_results = {}
+            all_messages_by_date = {}
             ch_client = self._conn_pool.get()
             try:
                 query_service = ClickHouseQueryService(ch_client)
@@ -179,30 +179,47 @@ class ClickHouseServer:
                         date, request.sub_type, len(stocks), client_address,
                     )
                     if request.sub_type == 1:
-                        results = publisher.publish_snapshot_batch(date, stocks)
+                        messages = publisher.build_snapshot_messages(date, stocks)
                     else:
-                        results = publisher.publish_tick_batch(date, stocks, sub_type=request.sub_type)
-                    all_results[date] = results
+                        messages = publisher.build_tick_messages(date, stocks, sub_type=request.sub_type)
+                    all_messages_by_date[date] = messages
             finally:
                 self._conn_pool.put(ch_client)
+
+            # 统计结果
+            stats = []
+            for date, messages in all_messages_by_date.items():
+                count_by_symbol: Dict[str, int] = {}
+                for msg in messages:
+                    count_by_symbol[msg.symbol] = count_by_symbol.get(msg.symbol, 0) + 1
+                stats.append({
+                    "date": date,
+                    "items": [{"code": symbol, "count": count} for symbol, count in count_by_symbol.items()],
+                })
 
             response = {
                 "success": True,
                 "sub_type": request.sub_type,
                 "start_date": request.start_date,
                 "end_date": request.end_date,
-                "stats": [
-                    {
-                        "date": date,
-                        "items": [{"code": symbol, "count": count} for symbol, count in result.items()],
-                    }
-                    for date, result in all_results.items()
-                ],
+                "stats": stats,
             }
+
+            # 先发送响应给客户端
             try:
                 self._send_response(client_socket, response)
             except (ConnectionResetError, BrokenPipeError, OSError):
-                self.logger.info("客户端 %s 已提前关闭连接（数据已推送完成）", client_address)
+                self.logger.info("客户端 %s 已提前关闭连接（响应已发送）", client_address)
+            self.logger.info("查询响应已发送: %s, sub_type=%s", client_address, request.sub_type)
+
+            # 再推送 Redis
+            try:
+                for date, messages in all_messages_by_date.items():
+                    if messages:
+                        publisher.publish_messages(messages)
+                self.logger.info("Redis 推送完成: %s, sub_type=%s", client_address, request.sub_type)
+            except Exception as redis_exc:
+                self.logger.error("Redis 推送失败: %s", redis_exc)
             self.logger.info("请求处理完成: %s, sub_type=%s", client_address, request.sub_type)
         except Exception as exc:
             self.logger.error("处理客户端错误: %s", exc)

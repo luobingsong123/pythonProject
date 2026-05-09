@@ -38,7 +38,10 @@ class ClickHousePublisher(BaseRedisService):
         self.query_service = query_service
         self.use_pipeline = use_pipeline
 
-    def publish_snapshot_batch(self, date: str, stocks: List[Tuple[str, str, int, str]]) -> Dict[str, int]:
+    def build_snapshot_messages(
+        self, date: str, stocks: List[Tuple[str, str, int, str]]
+    ) -> List[SnapshotMessage]:
+        """查询快照数据并构建消息，不推送 Redis。"""
         stock_params = [(market, code) for market, _exchange, code, _symbol in stocks]
         rows_by_symbol = self.query_service.get_snapshot_data(date, stock_params)
         all_messages: List[SnapshotMessage] = []
@@ -61,14 +64,15 @@ class ClickHousePublisher(BaseRedisService):
                 )
 
         all_messages.sort(key=lambda item: (item.timestamp, item.symbol, item.seqno))
-        return self._publish_messages(all_messages)
+        return all_messages
 
-    def publish_tick_batch(
+    def build_tick_messages(
         self,
         date: str,
         stocks: List[Tuple[str, str, int, str]],
         sub_type: int = 2,
-    ) -> Dict[str, int]:
+    ) -> List[TickMessage]:
+        """查询 Tick 数据并构建消息，不推送 Redis。"""
         stock_params = [(market, code) for market, _exchange, code, _symbol in stocks]
         rows_by_symbol = self.query_service.get_tick_data(date, stock_params, sub_type=sub_type)
         all_messages: List[TickMessage] = []
@@ -93,7 +97,24 @@ class ClickHousePublisher(BaseRedisService):
                 )
 
         all_messages.sort(key=lambda item: (item.timestamp, item.symbol, item.seqno))
-        return self._publish_messages(all_messages)
+        return all_messages
+
+    def publish_messages(self, messages: List[Any]) -> Dict[str, int]:
+        """将消息批量推送到 Redis。"""
+        return self._publish_messages(messages)
+
+    def publish_snapshot_batch(self, date: str, stocks: List[Tuple[str, str, int, str]]) -> Dict[str, int]:
+        messages = self.build_snapshot_messages(date, stocks)
+        return self._publish_messages(messages)
+
+    def publish_tick_batch(
+        self,
+        date: str,
+        stocks: List[Tuple[str, str, int, str]],
+        sub_type: int = 2,
+    ) -> Dict[str, int]:
+        messages = self.build_tick_messages(date, stocks, sub_type=sub_type)
+        return self._publish_messages(messages)
 
     def _publish_messages(self, messages: List[Any]) -> Dict[str, int]:
         results: Dict[str, int] = {}
